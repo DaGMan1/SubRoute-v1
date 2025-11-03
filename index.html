@@ -1,0 +1,55 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-," />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SubRoute Project Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'brand-blue': '#0052CC',
+              'brand-gray': {
+                '50': '#FAFBFC',
+                '100': '#F1F2F4',
+                '200': '#E4E6EA',
+                '300': '#C1C7D0',
+                '400': '#A5ADBA',
+                '500': '#8993A4',
+                '600': '#6B778C',
+                '700': '#42526E',
+                '800': '#253858',
+                '900': '#091E42'
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <!-- React and ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Markdown rendering libraries -->
+    <script src="https://unpkg.com/react-markdown@8/react-markdown.min.js"></script>
+    <script src="https://unpkg.com/remark-gfm@3/index.js"></script>
+    <script src="https://unpkg.com/rehype-raw@6/index.js"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0"
+  }
+}
+</script>
+</head>
+  <body class="bg-brand-gray-50">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

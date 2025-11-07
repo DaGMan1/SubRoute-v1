@@ -1,0 +1,68 @@
+import type { Trip, Expense } from '../types';
+
+export const mockTrips: Trip[] = [
+  {
+    id: 'trip1',
+    startTime: new Date('2023-10-01T09:00:00Z'),
+    endTime: new Date('2023-10-01T09:30:00Z'),
+    startOdometer: 10000,
+    endOdometer: 10025,
+    distance: 25,
+    purpose: 'business',
+    notes: 'Delivery to ACME Corp',
+    status: 'completed',
+  },
+  {
+    id: 'trip2',
+    startTime: new Date('2023-10-01T17:00:00Z'),
+    endTime: new Date('2023-10-01T17:20:00Z'),
+    startOdometer: 10025,
+    endOdometer: 10035,
+    distance: 10,
+    purpose: 'personal',
+    notes: 'Trip to the grocery store',
+    status: 'completed',
+  },
+  {
+    id: 'trip3',
+    startTime: new Date('2023-10-05T11:00:00Z'),
+    endTime: new Date('2023-10-05T12:30:00Z'),
+    startOdometer: 10100,
+    endOdometer: 10165,
+    distance: 65,
+    purpose: 'business',
+    notes: 'Client meeting and supply pickup',
+    status: 'completed',
+  },
+  {
+    id: 'trip4',
+    startTime: new Date('2023-11-12T08:30:00Z'),
+    endTime: new Date('2023-11-12T09:15:00Z'),
+    startOdometer: 10500,
+    endOdometer: 10540,
+    distance: 40,
+    purpose: 'business',
+    notes: 'Urgent package drop-off',
+    status: 'completed',
+  },
+  {
+    id: 'trip5',
+    startTime: new Date('2023-11-15T14:00:00Z'),
+    endTime: new Date('2023-11-15T14:45:00Z'),
+    startOdometer: 10600,
+    endOdometer: 10630,
+    distance: 30,
+    purpose: 'business',
+    notes: 'Visit to supplier',
+    status: 'completed',
+  },
+];
+
+export const mockExpenses: Expense[] = [
+  { id: 'exp1', description: 'Fuel at Shell', amount: 85.50, category: 'fuel', date: '2023-10-02' },
+  { id: 'exp2', description: 'M5 Toll', amount: 6.95, category: 'tolls', date: '2023-10-05' },
+  { id: 'exp3', description: 'Parking at Client Site', amount: 15.00, category: 'parking', date: '2023-10-05' },
+  { id: 'exp4', description: 'Oil Change', amount: 120.00, category: 'maintenance', date: '2023-10-20' },
+  { id: 'exp5', description: 'Fuel at BP', amount: 92.30, category: 'fuel', date: '2023-11-12' },
+  { id: 'exp6', description: 'Lunch with client', amount: 45.50, category: 'other', date: '2023-11-15' },
+];

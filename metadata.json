@@ -1,5 +1,9 @@
 {
   "name": "SubRoute Project Planner",
   "description": "An interactive project plan and architectural review for the SubRoute application. This app uses Gemini with Google Maps grounding to refine and detail the project roadmap for Australian courier drivers.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation",
+    "camera",
+    "microphone"
+  ]
 }

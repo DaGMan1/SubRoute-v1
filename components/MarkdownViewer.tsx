@@ -1,21 +1,19 @@
 
 import React from 'react';
-import type { Components } from 'react-markdown';
-
-// Assume these are globally available from the CDN scripts in index.html
-declare const ReactMarkdown: any;
-declare const remarkGfm: any;
-declare const rehypeRaw: any;
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 
 interface MarkdownViewerProps {
   content: string;
+  onGenerateTasks?: (title: string) => void;
 }
 
 const headingToId = (text: string) => {
     return text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
 };
 
-export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ content }) => {
+export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ content, onGenerateTasks }) => {
   const customComponents: { [key: string]: React.ElementType } = {
     h1: ({ node, ...props }) => {
         const id = headingToId(node.children.map((c: any) => c.value).join(''));
@@ -29,7 +27,6 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ content }) => {
         const id = headingToId(node.children.map((c: any) => c.value).join(''));
         return <h3 id={id} className="text-2xl font-semibold text-brand-gray-800 mt-8 mb-4" {...props} />;
     },
-    // FIX: Add h4, h5, and h6 to ensure they get IDs for the table of contents.
     h4: ({ node, ...props }) => {
         const id = headingToId(node.children.map((c: any) => c.value).join(''));
         return <h4 id={id} className="text-xl font-semibold text-brand-gray-800 mt-6 mb-3" {...props} />;
@@ -45,7 +42,36 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ content }) => {
     p: (props) => <p className="text-base text-brand-gray-700 mb-4 leading-relaxed" {...props} />,
     ul: (props) => <ul className="list-disc list-outside pl-6 mb-4 space-y-2 text-brand-gray-700" {...props} />,
     ol: (props) => <ol className="list-decimal list-outside pl-6 mb-4 space-y-2 text-brand-gray-700" {...props} />,
-    li: (props) => <li className="pl-2" {...props} />,
+    li: ({ node, ...props }) => {
+      const firstChild = node.children[0];
+      if (firstChild?.type === 'element' && firstChild.tagName === 'p' && onGenerateTasks) {
+          const strongChild = firstChild.children[0];
+          if (strongChild?.type === 'element' && strongChild.tagName === 'strong') {
+              const textChild = strongChild.children[0];
+              if (textChild?.type === 'text' && textChild.value.startsWith('Story')) {
+                  const storyTitle = textChild.value;
+                  return (
+                      <li className="pl-2 relative group" {...props}>
+                          <div className="flex justify-between items-center">
+                              <span>{props.children}</span>
+                              <button
+                                  onClick={() => onGenerateTasks(storyTitle)}
+                                  className="absolute right-0 top-1/2 -translate-y-1/2 bg-blue-100 text-brand-blue px-2 py-1 text-xs font-semibold rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:bg-blue-200"
+                                  aria-label={`Generate tasks for ${storyTitle}`}
+                              >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                  </svg>
+                                  Generate Tasks
+                              </button>
+                          </div>
+                      </li>
+                  );
+              }
+          }
+      }
+      return <li className="pl-2" {...props} />;
+    },
     a: (props) => <a className="text-brand-blue hover:underline" {...props} />,
     blockquote: (props) => <blockquote className="border-l-4 border-brand-blue bg-blue-50 p-4 my-4 text-brand-gray-800 italic" {...props} />,
     code: ({ node, inline, className, children, ...props }) => {

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { MarkdownViewer } from './components/MarkdownViewer';
 import { TableOfContents } from './components/TableOfContents';
 import { markdownContent } from './constants/markdownContent';
-import type { GroundingChunk, Heading, ScannedReceiptData } from './types';
+import type { GroundingChunk, Heading, ScannedReceiptData, User } from './types';
 import { useHeadingsObserver } from './hooks/useHeadingsObserver';
 import { GoogleGenAI, Type } from "@google/genai";
 import { TaskGeneratorModal } from './components/TaskGeneratorModal';
@@ -21,6 +21,8 @@ import { mockTrips, mockExpenses } from './constants/mockData';
 const App: React.FC = () => {
   const [headings, setHeadings] = useState<Heading[]>([]);
   const { activeId } = useHeadingsObserver();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
 
   // State for Task Generator Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -380,8 +382,8 @@ ${JSON.stringify(mockExpenses, null, 2)}
              <section id="app-prototypes">
                <h2 className="text-2xl font-bold text-brand-gray-800 mb-4">Application Prototypes & Components</h2>
                <div className="space-y-8">
-                  <AuthSandbox />
-                  <VehicleManagerSandbox />
+                  <AuthSandbox onLoginSuccess={setCurrentUser} currentUser={currentUser} onLogout={() => setCurrentUser(null)} />
+                  <VehicleManagerSandbox currentUser={currentUser} />
                   <FavoritePlacesSandbox />
                   <TripManagerSandbox />
                   <ExpenseManagerSandbox 

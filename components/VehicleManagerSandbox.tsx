@@ -1,53 +1,121 @@
 
-import React, { useState } from 'react';
-import type { Vehicle } from '../types';
+import React, { useState, useEffect, useCallback } from 'react';
+import type { Vehicle, User } from '../types';
 
-export const VehicleManagerSandbox: React.FC = () => {
-    const [vehicles, setVehicles] = useState<Vehicle[]>([
-        { id: '1', make: 'Toyota', model: 'HiAce', registration: '1AB-2CD', isPrimary: true },
-        { id: '2', make: 'Ford', model: 'Transit', registration: '3EF-4GH', isPrimary: false },
-    ]);
+interface VehicleManagerSandboxProps {
+    currentUser: User | null;
+}
+
+export const VehicleManagerSandbox: React.FC<VehicleManagerSandboxProps> = ({ currentUser }) => {
+    const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+    
+    // Form state
     const [make, setMake] = useState('');
     const [model, setModel] = useState('');
     const [registration, setRegistration] = useState('');
 
-    const handleAddVehicle = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!make || !model || !registration) {
-            // Add some user feedback here later
-            return;
+    const API_BASE_URL = '/api';
+
+    const fetchVehicles = useCallback(async () => {
+        if (!currentUser) return;
+        setIsLoading(true);
+        setError('');
+        try {
+            const response = await fetch(`${API_BASE_URL}/vehicles`, {
+                headers: { 'x-user-id': currentUser.id }
+            });
+            if (!response.ok) throw new Error('Failed to fetch vehicles.');
+            const data = await response.json();
+            setVehicles(data);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setIsLoading(false);
         }
-        const newVehicle: Vehicle = {
-            id: Date.now().toString(),
-            make,
-            model,
-            registration,
-            isPrimary: vehicles.length === 0, // Make first vehicle primary
-        };
-        setVehicles([...vehicles, newVehicle]);
-        // Clear form
-        setMake('');
-        setModel('');
-        setRegistration('');
+    }, [currentUser]);
+
+    useEffect(() => {
+        fetchVehicles();
+    }, [fetchVehicles]);
+
+    const handleAddVehicle = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!make || !model || !registration || !currentUser) return;
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/vehicles`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-user-id': currentUser.id,
+                },
+                body: JSON.stringify({ make, model, registration }),
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.message || 'Failed to add vehicle.');
+            }
+            // Clear form and refetch
+            setMake('');
+            setModel('');
+            setRegistration('');
+            fetchVehicles();
+        } catch (err: any) {
+            setError(err.message);
+        }
     };
     
-    const handleSetPrimary = (id: string) => {
-        setVehicles(vehicles.map(v => ({
-            ...v,
-            isPrimary: v.id === id,
-        })));
+    const handleSetPrimary = async (id: string) => {
+        if (!currentUser) return;
+        try {
+             const response = await fetch(`${API_BASE_URL}/vehicles/${id}/primary`, {
+                method: 'PUT',
+                headers: { 'x-user-id': currentUser.id },
+            });
+            if (!response.ok) throw new Error('Failed to set primary vehicle.');
+            fetchVehicles();
+        } catch (err: any) {
+             setError(err.message);
+        }
     };
 
-    const handleDelete = (id: string) => {
-        // In a real app, you'd confirm this
-        setVehicles(vehicles.filter(v => v.id !== id));
+    const handleDelete = async (id: string) => {
+        if (!currentUser || !window.confirm('Are you sure you want to delete this vehicle?')) return;
+        try {
+            const response = await fetch(`${API_BASE_URL}/vehicles/${id}`, {
+                method: 'DELETE',
+                headers: { 'x-user-id': currentUser.id },
+            });
+            if (!response.ok) throw new Error('Failed to delete vehicle.');
+            fetchVehicles();
+        } catch (err: any) {
+            setError(err.message);
+        }
+    };
+
+    if (!currentUser) {
+        return (
+             <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
+                <div className="flex items-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-brand-blue mr-3" viewBox="0 0 20 20" fill="currentColor"><path d="M18 8a2 2 0 00-2-2h-1V4a4 4 0 00-4-4H8a4 4 0 00-4 4v2H3a2 2 0 00-2 2v2a2 2 0 002 2h1v2a4 4 0 004 4h4a4 4 0 004-4v-2h1a2 2 0 002-2V8z" /></svg>
+                    <div>
+                        <h2 className="text-xl font-bold text-brand-gray-800">Component: Vehicle Management</h2>
+                        <p className="text-sm text-brand-gray-600">Implements **Story 1.2**: Add and manage vehicles.</p>
+                    </div>
+                </div>
+                <div className="text-center py-8 bg-brand-gray-50 rounded-md mt-6">
+                    <p className="text-brand-gray-600">Please log in to manage your vehicles.</p>
+                </div>
+            </div>
+        )
     }
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
             <div className="flex items-center mb-4">
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-brand-blue mr-3" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 2a2 2 0 00-2 2v1H6a2 2 0 00-2 2v1H2a2 2 0 00-2 2v1a2 2 0 002 2h2v1a2 2 0 002 2h2v1a2 2 0 002 2h2a2 2 0 002-2v-1h2a2 2 0 002-2v-1h2a2 2 0 002-2V8a2 2 0 00-2-2h-2V7a2 2 0 00-2-2h-2V4a2 2 0 00-2-2h-2zm-2 4h4v2H8V6zm0 4h4v2H8v-2z" clipRule="evenodd" />
                      <path d="M18 8a2 2 0 00-2-2h-1V4a4 4 0 00-4-4H8a4 4 0 00-4 4v2H3a2 2 0 00-2 2v2a2 2 0 002 2h1v2a4 4 0 004 4h4a4 4 0 004-4v-2h1a2 2 0 002-2V8z" />
                  </svg>
                 <div>
@@ -55,9 +123,10 @@ export const VehicleManagerSandbox: React.FC = () => {
                     <p className="text-sm text-brand-gray-600">Implements **Story 1.2**: Add and manage vehicles.</p>
                 </div>
             </div>
+            
+            {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-md my-4 text-center">{error}</p>}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-                {/* Add Vehicle Form */}
                 <div className="md:col-span-1">
                     <h3 className="text-lg font-semibold text-brand-gray-700 mb-3">Add a New Vehicle</h3>
                     <form onSubmit={handleAddVehicle} className="space-y-4">
@@ -79,33 +148,35 @@ export const VehicleManagerSandbox: React.FC = () => {
                     </form>
                 </div>
 
-                {/* Vehicle List */}
                 <div className="md:col-span-2">
                     <h3 className="text-lg font-semibold text-brand-gray-700 mb-3">Your Vehicles</h3>
-                    <div className="space-y-3">
-                        {vehicles.length > 0 ? (
-                            vehicles.map(vehicle => (
-                                <div key={vehicle.id} className="bg-brand-gray-50 p-4 rounded-lg border border-brand-gray-200 flex justify-between items-center">
-                                    <div>
-                                        <div className="flex items-center space-x-3">
-                                            <p className="font-semibold text-brand-gray-800">{vehicle.make} {vehicle.model}</p>
-                                            {vehicle.isPrimary && <span className="px-2 py-0.5 text-xs font-semibold text-green-800 bg-green-100 rounded-full">Primary</span>}
+                    {isLoading ? (
+                        <p className="text-sm text-brand-gray-500 text-center py-8">Loading vehicles...</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {vehicles.length > 0 ? (
+                                vehicles.map(vehicle => (
+                                    <div key={vehicle.id} className="bg-brand-gray-50 p-4 rounded-lg border border-brand-gray-200 flex justify-between items-center">
+                                        <div>
+                                            <div className="flex items-center space-x-3">
+                                                <p className="font-semibold text-brand-gray-800">{vehicle.make} {vehicle.model}</p>
+                                                {vehicle.isPrimary && <span className="px-2 py-0.5 text-xs font-semibold text-green-800 bg-green-100 rounded-full">Primary</span>}
+                                            </div>
+                                            <p className="text-sm text-brand-gray-600">{vehicle.registration}</p>
                                         </div>
-                                        <p className="text-sm text-brand-gray-600">{vehicle.registration}</p>
+                                        <div className="flex items-center space-x-2">
+                                            {!vehicle.isPrimary && (
+                                                 <button onClick={() => handleSetPrimary(vehicle.id)} className="text-xs font-medium text-brand-gray-600 hover:text-brand-blue" title="Set as primary">Set Primary</button>
+                                            )}
+                                            <button onClick={() => handleDelete(vehicle.id)} className="text-xs font-medium text-red-600 hover:text-red-800">Delete</button>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center space-x-2">
-                                        {!vehicle.isPrimary && (
-                                             <button onClick={() => handleSetPrimary(vehicle.id)} className="text-xs font-medium text-brand-gray-600 hover:text-brand-blue" title="Set as primary">Set Primary</button>
-                                        )}
-                                        <button className="text-xs font-medium text-brand-gray-600 hover:text-brand-blue">Edit</button>
-                                        <button onClick={() => handleDelete(vehicle.id)} className="text-xs font-medium text-red-600 hover:text-red-800">Delete</button>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="text-sm text-brand-gray-500 text-center py-8">You haven't added any vehicles yet.</p>
-                        )}
-                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-brand-gray-500 text-center py-8">You haven't added any vehicles yet.</p>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

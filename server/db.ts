@@ -1,23 +1,15 @@
-// This file will contain the database connection logic.
-// We will use a library like 'pg' to connect to our PostgreSQL instance.
-
-/*
-Example setup (to be implemented):
 
 import { Pool } from 'pg';
 
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
+  user: process.env.DB_USER || 'postgres',
+  host: process.env.DB_HOST || 'localhost',
+  database: process.env.DB_NAME || 'subroute_db',
+  password: process.env.DB_PASSWORD || 'password',
+  port: parseInt(process.env.DB_PORT || '5432', 10),
 });
 
 export default {
-  query: (text: string, params: any[]) => pool.query(text, params),
+  query: (text: string, params?: any[]) => pool.query(text, params),
+  getClient: () => pool.connect(),
 };
-
-*/
-
-console.log("Database module loaded (not connected yet).");

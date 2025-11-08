@@ -13,6 +13,12 @@ export interface GroundingChunk {
   };
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface Vehicle {
   id: string;
   make: string;

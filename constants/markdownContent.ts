@@ -1,4 +1,3 @@
-
 export const markdownContent = `
 # SubRoute: Architectural Review & Actionable Project Plan
 
@@ -64,22 +63,22 @@ As requested, we will use **Gemini with Google Maps grounding** to ensure the in
 
 ## Actionable Roadmap: Epics & User Stories
 
-The project is broken down into four main epics, each containing user stories that can be converted into development tickets.
+**Status Key:** ✅ Complete | 👉 Next Up | 🕹️ Prototype Complete
 
 ### Epic 1: Foundation & MVP (Months 1-3)
 
 **Goal:** Launch a functional app that allows drivers to securely register, and manually record ATO-compliant trips.
 
-- **Story 1.1: User Authentication**
+- ✅ **Story 1.1: User Authentication**
   - **As a driver, I want to create an account, log in securely, and manage my profile so I can start using the app.**
   - *Acceptance Criteria:* Email/password registration, secure login, basic profile page (Name, ABN).
-- **Story 1.2: Vehicle Management**
+- ✅ **Story 1.2: Vehicle Management**
   - **As a driver, I want to add and manage my vehicles so I can assign trips to the correct one.**
   - *Acceptance Criteria:* Add/edit/delete vehicle details (Make, Model, Rego). Mark one as primary.
-- **Story 1.3: Manual Trip Recording**
+- ✅ **Story 1.3: Manual Trip Recording**
   - **As a driver, I want to manually start and stop a trip, recording key ATO-required details.**
   - *Acceptance Criteria:* "Start Trip" button records start time and odometer. "End Trip" prompts for end odometer, trip purpose (business/personal), and notes. Distance is calculated.
-- **Story 1.4: Trip Logbook View**
+- ✅ **Story 1.4: Trip Logbook View**
   - **As a driver, I want to view a list of all my past trips so I can review my logbook.**
   - *Acceptance Criteria:* A chronological list of completed trips is displayed. Each entry shows date, distance, and purpose.
 - **Story 1.5: Basic Offline Support**
@@ -90,16 +89,16 @@ The project is broken down into four main epics, each containing user stories th
 
 **Goal:** Introduce routing, expense tracking, and basic reporting to make the app a daily-use tool.
 
-- **Story 2.1: Route Planning & Navigation**
+- 🕹️ **Story 2.1: Route Planning & Navigation**
   - **As a driver, I want to plan a route between multiple stops and see it on a map.**
   - *Acceptance Criteria:* Integration with a mapping provider (Google Maps/Mapbox). User can input a start, end, and optional waypoints. The optimal route is displayed.
-- **Story 2.2: Expense Tracking**
+- ✅ **Story 2.2: Expense Tracking**
   - **As a driver, I want to log expenses like fuel and tolls and attach a receipt photo.**
   - *Acceptance Criteria:* User can add an expense, select a category, enter an amount, and attach a photo from the camera or gallery.
-- **Story 2.3: Simple Logbook Export**
+- 👉 **Story 2.3: Simple Logbook Export**
   - **As a driver, I want to export my logbook for a specific date range as a CSV file.**
   - *Acceptance Criteria:* A feature to select dates and generate a CSV file of trips, sent to the user's email.
-- **Story 2.4: Multi-stop Route Optimization**
+- 🕹️ **Story 2.4: Multi-stop Route Optimization**
   - **As a driver with multiple deliveries, I want the app to calculate the most efficient order for my stops.**
   - *Acceptance Criteria:* User can input multiple waypoints and the app will reorder them for the shortest/fastest route.
 
@@ -113,10 +112,10 @@ The project is broken down into four main epics, each containing user stories th
 - **Story 3.2: Automated Trip Detection (Optional Start)**
   - **As a driver, I want the app to automatically detect when I start and finish a drive, and prompt me to log it.**
   - *Acceptance Criteria:* Using device sensors (GPS/accelerometer), the app suggests potential trips for the user to confirm and classify. This needs careful battery management.
-- **Story 3.3: Gemini-Powered Receipt Scanning**
+- ✅ **Story 3.3: Gemini-Powered Receipt Scanning**
   - **As a driver, when I upload a receipt, I want the app to automatically fill in the vendor, date, and amount.**
   - *Acceptance Criteria:* On receipt photo upload, call Gemini vision model. The extracted data populates the expense form for user confirmation.
-- **Story 3.4: Toll Road Preferences**
+- 🕹️ **Story 3.4: Toll Road Preferences**
   - **As a driver, I want my route planning to consider my preference to use or avoid toll roads.**
   - *Acceptance Criteria:* A user setting to "Avoid Tolls". Route calculation respects this setting and shows toll costs if available.
 
@@ -127,7 +126,7 @@ The project is broken down into four main epics, each containing user stories th
 - **Story 4.1: Performance & Offline Optimization**
   - **As a developer, I want to optimize app start time, sync speed, and offline map performance.**
   - *Acceptance Criteria:* App cold start under 2s. Offline map tiles for major metro areas are pre-cached. Sync is efficient.
-- **Story 4.2: Gemini Natural Language Query**
+- 🕹️ **Story 4.2: Gemini Natural Language Query**
   - **As a driver, I want to ask my logbook questions in plain English.**
   - *Acceptance Criteria:* A search/chat interface where a user can type "Show my fuel expenses for May" and get a filtered list.
 - **Story 4.3: Push Notifications & Reminders**
@@ -136,6 +135,9 @@ The project is broken down into four main epics, each containing user stories th
 - **Story 4.4: Web Dashboard (Admin/Analytics)**
   - **As a power user, I want a web dashboard to view my analytics and manage my data on a larger screen.**
   - *Acceptance Criteria:* A secure web portal for viewing trip history, running reports, and visualizing driving patterns.
+
+### Additional Completed Features
+- ✅ **Favorite Places Management**: A new feature allowing users to save and manage frequently visited locations was implemented to enhance route planning usability.
 
 ## Confirmed Technology Stack
 

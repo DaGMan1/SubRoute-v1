@@ -1,41 +1,38 @@
-
 import React, { useState } from 'react';
 import type { FavoritePlace } from '../types';
 
-export const FavoritePlacesSandbox: React.FC = () => {
-    const [places, setPlaces] = useState<FavoritePlace[]>([
-        { id: '1', name: 'Home', address: '42 Wallaby Way, Sydney, NSW', isHome: true },
-        { id: '2', name: 'Main Depot', address: '123 Industrial Ave, Botany, NSW', isHome: false },
-        { id: '3', name: 'Client Warehouse', address: '456 Distribution Rd, Huntingwood, NSW', isHome: false },
-    ]);
+interface FavoritePlacesSandboxProps {
+    places: FavoritePlace[];
+    onAddPlace: (name: string, address: string) => Promise<void>;
+    onSetHome: (id: string) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
+}
+
+export const FavoritePlacesSandbox: React.FC<FavoritePlacesSandboxProps> = ({
+    places,
+    onAddPlace,
+    onSetHome,
+    onDelete
+}) => {
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleAddPlace = (e: React.FormEvent) => {
+    const handleAddPlace = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name || !address) return;
-        
-        const newPlace: FavoritePlace = {
-            id: Date.now().toString(),
-            name,
-            address,
-            isHome: places.length === 0,
-        };
-        setPlaces([...places, newPlace]);
+        setIsSubmitting(true);
+        await onAddPlace(name, address);
         setName('');
         setAddress('');
+        setIsSubmitting(false);
     };
     
-    const handleSetHome = (id: string) => {
-        setPlaces(places.map(p => ({
-            ...p,
-            isHome: p.id === id,
-        })));
-    };
-
-    const handleDelete = (id: string) => {
-        setPlaces(places.filter(p => p.id !== id));
-    };
+    const handleDelete = async (id: string) => {
+        if (window.confirm('Are you sure you want to delete this place?')) {
+           await onDelete(id);
+        }
+    }
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
@@ -44,8 +41,8 @@ export const FavoritePlacesSandbox: React.FC = () => {
                     <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
                 </svg>
                 <div>
-                    <h2 className="text-xl font-bold text-brand-gray-800">Component: Favorite Places</h2>
-                    <p className="text-sm text-brand-gray-600">A new feature to save and manage frequently visited locations.</p>
+                    <h2 className="text-xl font-bold text-brand-gray-800">Favorite Places</h2>
+                    <p className="text-sm text-brand-gray-600">Manage frequently visited locations.</p>
                 </div>
             </div>
 
@@ -62,8 +59,8 @@ export const FavoritePlacesSandbox: React.FC = () => {
                             <label htmlFor="place-address" className="block text-sm font-medium text-brand-gray-700 mb-1">Address</label>
                             <input type="text" id="place-address" value={address} onChange={e => setAddress(e.target.value)} required className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue" placeholder="e.g., 123 Example St, Sydney"/>
                         </div>
-                        <button type="submit" className="w-full bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue">
-                           Save Place
+                        <button type="submit" disabled={isSubmitting} className="w-full bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400">
+                           {isSubmitting ? 'Saving...' : 'Save Place'}
                         </button>
                     </form>
                 </div>
@@ -89,9 +86,8 @@ export const FavoritePlacesSandbox: React.FC = () => {
                                     </div>
                                     <div className="flex items-center space-x-2 flex-shrink-0">
                                         {!place.isHome && (
-                                             <button onClick={() => handleSetHome(place.id)} className="text-xs font-medium text-brand-gray-600 hover:text-brand-blue" title="Set as Home">Set Home</button>
+                                             <button onClick={() => onSetHome(place.id)} className="text-xs font-medium text-brand-gray-600 hover:text-brand-blue" title="Set as Home">Set Home</button>
                                         )}
-                                        <button className="text-xs font-medium text-brand-gray-600 hover:text-brand-blue">Edit</button>
                                         <button onClick={() => handleDelete(place.id)} className="text-xs font-medium text-red-600 hover:text-red-800">Delete</button>
                                     </div>
                                 </div>

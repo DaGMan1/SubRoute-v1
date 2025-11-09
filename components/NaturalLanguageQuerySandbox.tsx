@@ -1,5 +1,7 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { MarkdownViewer } from './MarkdownViewer';
+import type { User } from '../types';
 
 interface ChatMessage {
   role: 'user' | 'model';
@@ -11,9 +13,10 @@ interface NaturalLanguageQuerySandboxProps {
     messages: ChatMessage[];
     isLoading: boolean;
     error: string;
+    currentUser: User | null;
 }
 
-export const NaturalLanguageQuerySandbox: React.FC<NaturalLanguageQuerySandboxProps> = ({ onQuery, messages, isLoading, error }) => {
+export const NaturalLanguageQuerySandbox: React.FC<NaturalLanguageQuerySandboxProps> = ({ onQuery, messages, isLoading, error, currentUser }) => {
     const [inputValue, setInputValue] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -33,14 +36,13 @@ export const NaturalLanguageQuerySandbox: React.FC<NaturalLanguageQuerySandboxPr
     
     const exampleQueries = [
         "How many kilometers did I drive for business last month?",
-        "Show me all my expenses for 'fuel' in October.",
-        "What was my longest trip?",
+        "Show me all my expenses for 'fuel'.",
+        "Log a $6.95 toll for the M5.",
     ];
 
     const handleExampleClick = (query: string) => {
         if (!isLoading) {
-            onQuery(query);
-            setInputValue('');
+            setInputValue(query);
         }
     };
 
@@ -52,8 +54,8 @@ export const NaturalLanguageQuerySandbox: React.FC<NaturalLanguageQuerySandboxPr
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
                 <div>
-                    <h2 className="text-xl font-bold text-brand-gray-800">Feature Prototype: Natural Language Query</h2>
-                    <p className="text-sm text-brand-gray-600">Implements **Story 4.2**: Ask questions about your logbook data in plain English.</p>
+                    <h2 className="text-xl font-bold text-brand-gray-800">Conversational Assistant</h2>
+                    <p className="text-sm text-brand-gray-600">Ask questions or give commands.</p>
                 </div>
             </div>
 
@@ -84,9 +86,14 @@ export const NaturalLanguageQuerySandbox: React.FC<NaturalLanguageQuerySandboxPr
                             </div>
                         </div>
                     )}
-                    {messages.length === 0 && !isLoading && (
+                    {messages.length === 0 && !isLoading && !currentUser && (
+                         <div className="text-center text-brand-gray-500 pt-10">
+                            <p>Please log in to chat with the assistant.</p>
+                        </div>
+                    )}
+                    {messages.length === 0 && !isLoading && currentUser &&(
                         <div className="text-center text-brand-gray-500 pt-10">
-                            <p className="mb-4">Ask a question about your trips and expenses.</p>
+                            <p className="mb-4">Ask a question or give a command.</p>
                              <div className="flex flex-wrap justify-center gap-2">
                                 {exampleQueries.map(q => (
                                      <button key={q} onClick={() => handleExampleClick(q)} className="px-3 py-1.5 text-sm bg-brand-gray-100 hover:bg-brand-gray-200 text-brand-gray-700 rounded-full transition-colors">
@@ -105,13 +112,13 @@ export const NaturalLanguageQuerySandbox: React.FC<NaturalLanguageQuerySandboxPr
                             type="text"
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
-                            placeholder="e.g., How much did I spend on fuel in October?"
+                            placeholder={!currentUser ? "Please log in..." : "e.g., How much did I spend on fuel?"}
                             className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
-                            disabled={isLoading}
+                            disabled={isLoading || !currentUser}
                         />
                         <button
                             type="submit"
-                            disabled={isLoading || !inputValue.trim()}
+                            disabled={isLoading || !inputValue.trim() || !currentUser}
                             className="bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400 disabled:cursor-not-allowed"
                         >
                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

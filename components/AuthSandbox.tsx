@@ -113,17 +113,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
-            <div className="flex items-center mb-4">
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-brand-blue mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <div>
-                    <h2 className="text-xl font-bold text-brand-gray-800">Component: Authentication</h2>
-                    <p className="text-sm text-brand-gray-600">Implements **Story 1.1**: User registration and login UI.</p>
-                </div>
-            </div>
-
-            <div className="max-w-md mx-auto mt-6">
+             <div className="max-w-md mx-auto">
                 <div className="bg-brand-gray-100 p-1.5 rounded-lg flex space-x-2 mb-6">
                     <button onClick={() => handleModeChange('login')} className={tabClasses('login')}>
                         Login

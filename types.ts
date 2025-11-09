@@ -1,5 +1,6 @@
 
 
+
 export interface Heading {
   id: string;
   text: string;
@@ -37,6 +38,8 @@ export interface Trip {
   purpose?: 'business' | 'personal';
   notes?: string;
   status: 'active' | 'completed';
+  vehicleId?: string;
+  vehicleInfo?: string;
 }
 
 export type ExpenseCategory = 'fuel' | 'tolls' | 'parking' | 'maintenance' | 'other';
@@ -49,6 +52,7 @@ export interface Expense {
   date: string; // Using string to easily manage date input value
   receiptUrl?: string;
   receiptDataUrl?: string; // To hold base64 data for previews
+  tripId?: string; // Link to a specific trip
 }
 
 export interface FavoritePlace {
@@ -62,4 +66,13 @@ export interface ScannedReceiptData {
     vendor: string;
     amount: number;
     date: string;
+}
+
+export interface SuggestedTrip {
+  id: string; // A temporary client-side ID
+  startTime: Date;
+  endTime: Date;
+  distance: number;
+  startAddress: string;
+  endAddress: string;
 }

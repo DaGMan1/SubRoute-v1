@@ -1,19 +1,8 @@
-
 import { Router, Request, Response } from 'express';
 import db from '../db';
+import { checkUserId } from '../utils/middleware';
 
 const router = Router();
-
-// Middleware to check for user ID header
-const checkUserId = (req: Request, res: Response, next: Function) => {
-    const userId = req.headers['x-user-id'];
-    if (!userId) {
-        return res.status(401).json({ message: 'User ID is required.' });
-    }
-    // Attach userId to the request object for easy access in route handlers
-    (req as any).userId = userId;
-    next();
-};
 
 // Apply middleware to all routes in this router
 router.use(checkUserId);

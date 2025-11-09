@@ -1,8 +1,5 @@
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
-import type { GroundingChunk } from '../types';
+import type { GroundingChunk, FavoritePlace } from '../types';
 import { MarkdownViewer } from './MarkdownViewer';
 import { GoogleGenAI, Type, Modality, Blob, LiveServerMessage } from "@google/genai";
 
@@ -35,6 +32,8 @@ interface RoutePlannerSandboxProps {
     groundingChunks: GroundingChunk[];
     isLoading: boolean;
     identifiedTolls: string[];
+    favoritePlaces: FavoritePlace[];
+    onAddTollExpenses: (tollNames: string[]) => void;
 }
 
 export const RoutePlannerSandbox: React.FC<RoutePlannerSandboxProps> = ({ 
@@ -43,11 +42,15 @@ export const RoutePlannerSandbox: React.FC<RoutePlannerSandboxProps> = ({
     result, 
     groundingChunks, 
     isLoading,
-    identifiedTolls 
+    identifiedTolls,
+    favoritePlaces,
+    onAddTollExpenses,
 }) => {
     const [stops, setStops] = useState<string[]>(['Sydney Airport, NSW', 'Chatswood, NSW', 'Parramatta, NSW', 'Bondi Beach, NSW']);
     const [tollsToInclude, setTollsToInclude] = useState<Set<string>>(new Set());
-    
+    const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
+    const [tollsLogged, setTollsLogged] = useState<boolean>(false);
+
     // State for voice commands
     const [isListening, setIsListening] = useState<boolean>(false);
     const [transcript, setTranscript] = useState<string>('');
@@ -96,13 +99,20 @@ export const RoutePlannerSandbox: React.FC<RoutePlannerSandboxProps> = ({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        setTollsLogged(false); // Reset on new search
         onFindRoute(stops.filter(stop => stop.trim() !== ''));
     }
 
     const handleRefineSubmit = () => {
+        setTollsLogged(false); // Reset on refine
         const excludedTolls = identifiedTolls.filter(toll => !tollsToInclude.has(toll));
         onRefineRoute(stops.filter(stop => stop.trim() !== ''), excludedTolls);
     }
+
+    const handleLogTolls = () => {
+        onAddTollExpenses(identifiedTolls);
+        setTollsLogged(true);
+    };
     
     const extractAddressesFromTranscript = async (text: string) => {
         if (!text.trim()) return;
@@ -206,6 +216,11 @@ Output:
                             const text = message.serverContent.inputTranscription.text;
                             setTranscript(prev => prev + text);
                         }
+                        // Fix: Per Gemini API guidelines, audio output must be handled when responseModalities includes AUDIO.
+                        // In this component, we only need the transcription, so we will not process/play the audio.
+                        if (message.serverContent?.modelTurn?.parts[0]?.inlineData?.data) {
+                            // Audio data received but not used in this component.
+                        }
                         if (message.serverContent?.turnComplete) {
                            // In this implementation, we wait for the user to stop manually.
                         }
@@ -219,7 +234,9 @@ Output:
                         console.log('Gemini Live session closed');
                     },
                 },
+                // Fix: Per Gemini API guidelines, responseModalities must be set to AUDIO for Live API connections.
                 config: {
+                    responseModalities: [Modality.AUDIO],
                     inputAudioTranscription: {},
                 }
             });
@@ -265,8 +282,8 @@ Output:
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
-            <h2 className="text-xl font-bold text-brand-gray-800 mb-1">Feature Prototype Sandbox</h2>
-            <p className="text-sm text-brand-gray-600 mb-4 border-b pb-4">Test multi-stop routing (**Story 2.4**) and toll avoidance (**Story 3.4**). Add stops manually or use the new voice command feature.</p>
+            <h2 className="text-xl font-bold text-brand-gray-800 mb-1">Route Planner</h2>
+            <p className="text-sm text-brand-gray-600 mb-4 border-b pb-4">Plan multi-stop routes and manage toll preferences.</p>
             
             <div className="bg-brand-gray-50 p-4 rounded-lg border border-brand-gray-200 mb-4">
                  <div className="flex items-center justify-between">
@@ -299,8 +316,8 @@ Output:
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-3">
                     {stops.map((stop, index) => (
-                        <div key={index} className="flex items-center space-x-2">
-                             <label htmlFor={`stop-${index}`} className="text-sm font-medium text-brand-gray-700 w-24 flex-shrink-0 text-right pr-2">
+                        <div key={index} className="relative flex items-center space-x-2">
+                            <label htmlFor={`stop-${index}`} className="text-sm font-medium text-brand-gray-700 w-24 flex-shrink-0 text-right pr-2">
                                 {index === 0 ? 'Start' : (index === stops.length - 1 ? 'End' : `Stop ${index + 1}`)}
                             </label>
                             <input 
@@ -308,9 +325,41 @@ Output:
                                 id={`stop-${index}`}
                                 value={stop}
                                 onChange={(e) => handleStopChange(index, e.target.value)}
+                                onFocus={() => setActiveDropdown(index)}
+                                onBlur={() => setTimeout(() => setActiveDropdown(null), 150)}
                                 className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder={index === 0 ? "Start location" : (index === stops.length - 1 ? "End location" : "Waypoint")}
+                                autoComplete="off"
                             />
+                            {activeDropdown === index && favoritePlaces.length > 0 && (
+                                <div className="absolute top-full left-24 right-7 z-10 mt-1 bg-white border border-brand-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                                  <div className="px-3 py-2 text-xs font-semibold text-brand-gray-500 border-b">Favorite Places</div>
+                                  <ul className="py-1">
+                                    {favoritePlaces.map(place => (
+                                      <li key={place.id}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleStopChange(index, place.address);
+                                            setActiveDropdown(null);
+                                          }}
+                                          className="w-full text-left px-3 py-2 hover:bg-brand-gray-100 transition-colors"
+                                        >
+                                          <div className="flex items-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-yellow-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                            </svg>
+                                            <div>
+                                              <p className="text-sm font-medium text-brand-gray-800">{place.name}</p>
+                                              <p className="text-xs text-brand-gray-500">{place.address}</p>
+                                            </div>
+                                          </div>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                            )}
                             {stops.length > 2 ? (
                                 <button type="button" onClick={() => handleRemoveStop(index)} className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100" title="Remove stop">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -392,6 +441,26 @@ Output:
                             >
                                 {isLoading ? 'Updating...' : 'Update Route with Selected Tolls'}
                             </button>
+
+                             <div className="mt-4 border-t border-yellow-200 pt-4">
+                                <button
+                                    onClick={handleLogTolls}
+                                    disabled={tollsLogged}
+                                    className="w-full bg-white text-brand-blue font-semibold px-4 py-2 text-sm rounded-md border border-brand-blue shadow-sm hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-100 disabled:text-brand-gray-500 disabled:border-brand-gray-200 disabled:cursor-not-allowed flex items-center justify-center"
+                                >
+                                    {tollsLogged ? (
+                                        <>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                            </svg>
+                                            Tolls Logged as Expenses
+                                        </>
+                                    ) : (
+                                         'Log Identified Tolls as Expenses'
+                                    )}
+                                </button>
+                                { !tollsLogged && <p className="text-xs text-yellow-700 mt-2 text-center">This will add each toll as a $0.00 expense for you to edit later.</p> }
+                            </div>
                         </div>
                     )}
 

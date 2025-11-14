@@ -1,4 +1,3 @@
-
 import { Router, Request, Response } from 'express';
 import db from '../db';
 import bcrypt from 'bcrypt';
@@ -30,8 +29,8 @@ router.post('/register', async (req: Request, res: Response) => {
 
         // Insert new user into the database
         const newUserQuery = `
-            INSERT INTO users (name, email, password_hash, abn)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO users (name, email, password_hash, abn, auth_provider)
+            VALUES ($1, $2, $3, $4, 'local')
             RETURNING id, name, email, created_at;
         `;
         const newUser = await db.query(newUserQuery, [name, email, hashedPassword, abn || null]);
@@ -56,8 +55,8 @@ router.post('/login', async (req: Request, res: Response) => {
         const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
         const user = result.rows[0];
 
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid credentials.' });
+        if (!user || user.auth_provider !== 'local' || !user.password_hash) {
+            return res.status(401).json({ message: 'Invalid credentials or sign-in method.' });
         }
 
         const passwordMatch = await bcrypt.compare(password, user.password_hash);
@@ -74,6 +73,46 @@ router.post('/login', async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Internal server error during login.' });
+    }
+});
+
+// POST /api/auth/oauth
+router.post('/oauth', async (req: Request, res: Response) => {
+    const { email, name, provider, providerId } = req.body;
+
+    if (!email || !name || !provider || !providerId) {
+        return res.status(400).json({ message: 'OAuth provider information is incomplete.' });
+    }
+
+    try {
+        // 1. Check if user exists with this provider ID
+        let userResult = await db.query('SELECT * FROM users WHERE provider_id = $1 AND auth_provider = $2', [providerId, provider]);
+
+        if (userResult.rows.length > 0) {
+            // User found, log them in
+            const { password_hash, ...userToSend } = userResult.rows[0];
+            return res.status(200).json(userToSend);
+        }
+
+        // 2. If not, check if an account with this email already exists (e.g., created with password)
+        const emailCheckResult = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (emailCheckResult.rows.length > 0) {
+            return res.status(409).json({ message: 'An account with this email already exists. Please log in using your original method.' });
+        }
+
+        // 3. Create a new user
+        const newUserQuery = `
+            INSERT INTO users (name, email, auth_provider, provider_id)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, name, email, created_at;
+        `;
+        const newUser = await db.query(newUserQuery, [name, email, provider, providerId]);
+
+        res.status(201).json(newUser.rows[0]);
+
+    } catch (error) {
+        console.error('OAuth error:', error);
+        res.status(500).json({ message: 'Internal server error during OAuth process.' });
     }
 });
 

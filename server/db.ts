@@ -1,4 +1,3 @@
-
 import { Pool } from 'pg';
 
 const pool = new Pool({
@@ -16,7 +15,9 @@ const schemaCreationQuery = `
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) UNIQUE NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
+      password_hash VARCHAR(255), -- Nullable for OAuth users
+      auth_provider VARCHAR(50) NOT NULL DEFAULT 'local', -- e.g., 'local', 'google'
+      provider_id VARCHAR(255) UNIQUE, -- The user's ID from the OAuth provider
       abn VARCHAR(50),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );

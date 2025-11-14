@@ -173,7 +173,8 @@ export const ExpenseManagerSandbox: React.FC<ExpenseManagerSandboxProps> = ({
                                 <option value="">None</option>
                                 {completedTrips.map(trip => (
                                     <option key={trip.id} value={trip.id}>
-                                        {trip.distance}km trip on {new Date(trip.endTime!).toLocaleDateString('en-AU')}
+                                        {trip.distance}km ({trip.purpose}) on {new Date(trip.endTime!).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                                        {trip.notes && ` - "${trip.notes.substring(0, 25)}..."`}
                                     </option>
                                 ))}
                             </select>
@@ -220,10 +221,10 @@ export const ExpenseManagerSandbox: React.FC<ExpenseManagerSandboxProps> = ({
                                                         <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
                                                     </svg>
                                                     }
-                                                    {linkedTrip &&
-                                                        <span title={`Linked to ${linkedTrip.distance}km trip`} className="flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                                    {linkedTrip && linkedTrip.distance && linkedTrip.purpose && linkedTrip.endTime &&
+                                                        <span title={linkedTrip.notes || `Trip on ${new Date(linkedTrip.endTime).toLocaleDateString()}`} className="flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" /></svg>
-                                                            Trip Link
+                                                            Linked: {linkedTrip.distance}km ({linkedTrip.purpose})
                                                         </span>
                                                     }
                                                 </div>

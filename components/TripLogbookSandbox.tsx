@@ -35,6 +35,66 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ onBack }) => {
     }
   };
 
+  const exportToCSV = () => {
+    if (logs.length === 0) {
+      alert('No trips to export');
+      return;
+    }
+
+    // ATO-compliant CSV format
+    const headers = [
+      'Date',
+      'Start Time',
+      'End Time',
+      'Start Odometer (km)',
+      'End Odometer (km)',
+      'Distance (km)',
+      'Origin',
+      'Destination',
+      'Purpose',
+      'Vehicle'
+    ];
+
+    let currentOdometer = parseFloat(localStorage.getItem('subroute_current_odometer') || '0');
+
+    const csvRows = [headers.join(',')];
+
+    // Sort logs by timestamp ascending for proper odometer calculation
+    const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);
+
+    sortedLogs.forEach((log) => {
+      const startOdo = currentOdometer;
+      const endOdo = currentOdometer + log.distanceKm;
+      currentOdometer = endOdo;
+
+      const row = [
+        log.date,
+        log.startTime,
+        log.endTime,
+        startOdo.toFixed(1),
+        endOdo.toFixed(1),
+        log.distanceKm.toFixed(1),
+        `"${log.origin.replace(/"/g, '""')}"`, // Escape quotes
+        `"${log.destination.replace(/"/g, '""')}"`,
+        'Business - Courier Delivery',
+        log.vehicleString
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', `SubRoute_Logbook_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen bg-brand-gray-100 flex flex-col">
       {/* Header */}
@@ -46,7 +106,16 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ onBack }) => {
             </button>
             <h1 className="text-2xl font-bold text-brand-gray-900">Trip Logbook</h1>
           </div>
-          <button onClick={clearLogs} className="text-xs text-red-500 hover:underline">Clear History</button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={exportToCSV}
+              className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center space-x-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+              <span>Export ATO CSV</span>
+            </button>
+            <button onClick={clearLogs} className="text-xs text-red-500 hover:underline">Clear History</button>
+          </div>
         </div>
       </div>
 

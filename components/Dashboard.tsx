@@ -4,7 +4,7 @@ import type { User } from '../types';
 
 interface DashboardProps {
     user: User;
-    onNavigate: (view: 'dashboard' | 'planner' | 'vehicles' | 'logbook') => void;
+    onNavigate: (view: 'dashboard' | 'planner' | 'vehicles' | 'logbook' | 'odometer') => void;
 }
 
 // FIX: Changed JSX.Element to React.ReactNode to resolve typescript error "Cannot find namespace 'JSX'".
@@ -67,8 +67,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate }) => {
             onClick: () => onNavigate('logbook'),
             actionLabel: "View Logbook"
         },
-        { 
-            title: 'Expense Tracker', 
+        {
+            title: 'Odometer & Fuel',
+            description: 'Track odometer readings, fuel economy, and service reminders.',
+            icon: <svg className="w-6 h-6 text-brand-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>,
+            comingSoon: false,
+            onClick: () => onNavigate('odometer'),
+            actionLabel: "Track Odometer"
+        },
+        {
+            title: 'Expense Tracker',
             description: 'Log fuel, maintenance, and other business expenses.',
             icon: <svg className="w-6 h-6 text-brand-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>,
             comingSoon: true

@@ -3,11 +3,12 @@ import React, { useState } from 'react';
 import type { User } from './types';
 import { Auth } from './components/AuthSandbox';
 import { Dashboard } from './components/Dashboard';
-import { RoutePlanner } from './components/RoutePlannerSandbox';
+import { CourierRoutePlanner } from './components/CourierRoutePlanner';
 import { VehicleManager } from './components/VehicleManagerSandbox';
 import { TripLogbook } from './components/TripLogbookSandbox';
+import { OdometerTracker } from './components/OdometerTracker';
 
-type AppView = 'dashboard' | 'planner' | 'vehicles' | 'logbook';
+type AppView = 'dashboard' | 'planner' | 'vehicles' | 'logbook' | 'odometer';
 
 const App: React.FC = () => {
   // Initialize state lazily to check localStorage *before* the first render.
@@ -90,13 +91,16 @@ const App: React.FC = () => {
           <Dashboard user={currentUser} onNavigate={handleNavigate} />
         )}
         {currentView === 'planner' && (
-          <RoutePlanner onBack={() => setCurrentView('dashboard')} />
+          <CourierRoutePlanner onBack={() => setCurrentView('dashboard')} />
         )}
         {currentView === 'vehicles' && (
           <VehicleManager user={currentUser} onBack={() => setCurrentView('dashboard')} />
         )}
         {currentView === 'logbook' && (
           <TripLogbook onBack={() => setCurrentView('dashboard')} />
+        )}
+        {currentView === 'odometer' && (
+          <OdometerTracker onBack={() => setCurrentView('dashboard')} />
         )}
       </div>
     </div>

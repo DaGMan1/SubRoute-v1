@@ -1,16 +1,32 @@
+
 import React, { useState } from 'react';
 import type { User } from '../types';
 
-interface AuthSandboxProps {
+interface AuthProps {
     onLoginSuccess: (user: User) => void;
-    currentUser: User | null;
-    onLogout: () => void;
 }
 
 type AuthMode = 'login' | 'register';
 type AuthProvider = 'google' | 'facebook' | 'tiktok' | 'microsoft' | 'apple';
 
-export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, currentUser, onLogout }) => {
+// Mock storage keys
+const STORAGE_KEY_USERS = 'subroute_users';
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper to safely get users from storage
+const getStoredUsers = (): any[] => {
+    try {
+        const usersRaw = localStorage.getItem(STORAGE_KEY_USERS);
+        const parsed = usersRaw ? JSON.parse(usersRaw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        console.error("Error parsing user database", e);
+        return [];
+    }
+}
+
+export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
     const [mode, setMode] = useState<AuthMode>('login');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -20,8 +36,6 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [abn, setAbn] = useState('');
-
-    const API_BASE_URL = '/api';
 
     const resetForm = () => {
         setName('');
@@ -40,20 +54,28 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
         e.preventDefault();
         setIsLoading(true);
         setError('');
+        
         try {
-            const response = await fetch(`${API_BASE_URL}/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || 'Login failed');
+            // Simulate API call delay for realism
+            await delay(800);
+
+            const users = getStoredUsers();
+            const cleanEmail = email.trim().toLowerCase();
+            
+            // Basic validation
+            const user = users.find((u: any) => u.email.toLowerCase() === cleanEmail && u.password === password);
+
+            if (!user) {
+                throw new Error('Invalid email or password.');
             }
-            onLoginSuccess(data);
+
+            // Remove password before returning
+            const { password: _, ...userWithoutPassword } = user;
+            onLoginSuccess(userWithoutPassword);
             resetForm();
+
         } catch (err: any) {
-            setError(err.message);
+            setError(err.message || 'Login failed.');
         } finally {
             setIsLoading(false);
         }
@@ -63,20 +85,39 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
         e.preventDefault();
         setIsLoading(true);
         setError('');
+
         try {
-            const response = await fetch(`${API_BASE_URL}/auth/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, password, abn }),
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || 'Registration failed');
+            // Simulate API call delay
+            await delay(800);
+
+            if (password.length < 8) {
+                throw new Error('Password must be at least 8 characters long.');
             }
-            onLoginSuccess(data);
+
+            const users = getStoredUsers();
+            const cleanEmail = email.trim().toLowerCase();
+
+            if (users.find((u: any) => u.email.toLowerCase() === cleanEmail)) {
+                throw new Error('An account with this email already exists.');
+            }
+
+            const newUser = {
+                id: Date.now().toString(),
+                name: name.trim(),
+                email: cleanEmail,
+                password,
+                abn: abn.trim()
+            };
+
+            users.push(newUser);
+            localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
+
+            const { password: _, ...userWithoutPassword } = newUser;
+            onLoginSuccess(userWithoutPassword);
             resetForm();
+
         } catch (err: any) {
-            setError(err.message);
+            setError(err.message || 'Registration failed.');
         } finally {
             setIsLoading(false);
         }
@@ -86,8 +127,8 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
         setIsLoading(true);
         setError('');
         try {
-            // This is a simulation. In a real app, this would involve a popup
-            // and a redirect to the provider's authentication service.
+            await delay(1500); // Simulate popup and redirect
+
              const mockUsers = {
                 google: { email: 'driver@google.com', name: 'Alex Doe (Google)', provider: 'google', providerId: '10987654321' },
                 facebook: { email: 'driver@facebook.com', name: 'Alex Doe (Facebook)', provider: 'facebook', providerId: '20987654321' },
@@ -95,19 +136,9 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                 microsoft: { email: 'driver@outlook.com', name: 'Alex Doe (Microsoft)', provider: 'microsoft', providerId: '40987654321' },
                 apple: { email: 'driver@apple.com', name: 'Alex Doe (Apple)', provider: 'apple', providerId: '50987654321' },
             };
-            const mockUser = mockUsers[provider];
+            const mockUser = { ...mockUsers[provider], id: Date.now().toString() };
 
-            const response = await fetch(`${API_BASE_URL}/auth/oauth`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(mockUser),
-            });
-            
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || `Sign-In with ${provider.charAt(0).toUpperCase() + provider.slice(1)} failed`);
-            }
-            onLoginSuccess(data);
+            onLoginSuccess(mockUser);
             resetForm();
 
         } catch (err: any) {
@@ -124,27 +155,6 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
             : 'text-brand-gray-600 hover:bg-brand-gray-200'
         }`;
 
-    if (currentUser) {
-        return (
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
-                <div className="flex items-center mb-4">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-500 mr-3" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <div>
-                        <h2 className="text-xl font-bold text-brand-gray-800">Welcome, {currentUser.name}</h2>
-                        <p className="text-sm text-brand-gray-600">You are successfully logged in.</p>
-                    </div>
-                </div>
-                <button 
-                    onClick={onLogout}
-                    className="w-full mt-4 bg-brand-gray-600 text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-brand-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-gray-500"
-                >
-                    Logout
-                </button>
-            </div>
-        )
-    }
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
@@ -158,7 +168,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                     </button>
                 </div>
 
-                {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-md mb-4 text-center">{error}</p>}
+                {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-md mb-4 text-center" role="alert">{error}</p>}
 
                 {mode === 'login' && (
                     <form onSubmit={handleLogin} className="space-y-4">
@@ -172,6 +182,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                                 required
                                 className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder="you@example.com"
+                                autoComplete="email"
                             />
                         </div>
                         <div>
@@ -184,12 +195,13 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                                 required
                                 className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder="••••••••"
+                                autoComplete="current-password"
                             />
                         </div>
                         <button 
                             type="submit"
                             disabled={isLoading}
-                            className="w-full bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400"
+                            className="w-full bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400 disabled:cursor-not-allowed"
                         >
                             {isLoading ? 'Signing In...' : 'Sign In'}
                         </button>
@@ -208,6 +220,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                                 required
                                 className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder="John Doe"
+                                autoComplete="name"
                             />
                         </div>
                         <div>
@@ -220,6 +233,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                                 required
                                 className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder="you@example.com"
+                                autoComplete="email"
                             />
                         </div>
                          <div>
@@ -243,12 +257,13 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                                 required
                                 className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
                                 placeholder="Minimum 8 characters"
+                                autoComplete="new-password"
                             />
                         </div>
                         <button 
                             type="submit"
                             disabled={isLoading}
-                            className="w-full bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400"
+                            className="w-full bg-brand-blue text-white font-semibold px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400 disabled:cursor-not-allowed"
                         >
                             {isLoading ? 'Creating Account...' : 'Create Account'}
                         </button>
@@ -256,7 +271,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                 )}
                 
                 <div className="relative my-6">
-                    <div className="absolute inset-0 flex items-center">
+                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
                         <div className="w-full border-t border-brand-gray-300" />
                     </div>
                     <div className="relative flex justify-center text-sm">
@@ -282,7 +297,7 @@ export const AuthSandbox: React.FC<AuthSandboxProps> = ({ onLoginSuccess, curren
                         Sign in with Outlook (Microsoft)
                     </button>
                      <button type="button" onClick={() => handleOAuthSignIn('apple')} disabled={isLoading} className="w-full flex items-center justify-center px-4 py-2 border border-brand-gray-300 rounded-md shadow-sm text-sm font-medium text-brand-gray-700 bg-white hover:bg-brand-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:opacity-50">
-                        <svg className="w-5 h-5 mr-3" aria-hidden="true" focusable="false" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C34 140.7 0 175.1 0 243.2c0 65.7 60.7 124.3 124.7 124.3 22.2 0 41.5-1.7 53.4-4.8 11.9 3.1 22.9 4.8 33.1 4.8 21.2 0 43.6-7.2 66.8-14.3-36.7-22.3-54.3-64.5-54.3-102.8zM243.8 102.4c14.4-13.4 24.9-32.5 24.9-54.2 0-24.5-20.6-44.4-47.9-44.4-23.5 0-44.4 16.6-54.5 39.5-15.5-24.3-43.9-39.5-74.4-39.5C53.5 3.8 16 34.8 16 79.4c0 30.6 23.5 54.2 53.4 54.2 22.9 0 42.1-13.4 54.5-31.5 15.6 24.3 42.1 31.5 69.5 31.5 22.2 0 46.1-10.4 50.4-11.2z"></path></svg>
+                        <svg className="w-5 h-5 mr-3" aria-hidden="true" focusable="false" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C34 140.7 0 175.1 0 243.2c0 65.7 60.7 124.3 124.3 124.3 22.2 0 41.5-1.7 53.4-4.8 11.9 3.1 22.9 4.8 33.1 4.8 21.2 0 43.6-7.2 66.8-14.3-36.7-22.3-54.3-64.5-54.3-102.8zM243.8 102.4c14.4-13.4 24.9-32.5 24.9-54.2 0-24.5-20.6-44.4-47.9-44.4-23.5 0-44.4 16.6-54.5 39.5-15.5-24.3-43.9-39.5-74.4-39.5C53.5 3.8 16 34.8 16 79.4c0 30.6 23.5 54.2 53.4 54.2 22.9 0 42.1-13.4 54.5-31.5 15.6 24.3 42.1 31.5 69.5 31.5 22.2 0 46.1-10.4 50.4-11.2z"></path></svg>
                         Sign in with Apple
                     </button>
                 </div>

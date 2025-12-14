@@ -1,485 +1,557 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import type { GroundingChunk, FavoritePlace } from '../types';
-import { MarkdownViewer } from './MarkdownViewer';
-import { GoogleGenAI, Type, Modality, Blob, LiveServerMessage } from "@google/genai";
+import type { TripLog } from '../types';
 
-// Audio processing functions for Gemini Live
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+declare var L: any;
+
+interface RoutePlannerProps {
+  onBack: () => void;
 }
 
-function createBlob(data: Float32Array): Blob {
-  const l = data.length;
-  const int16 = new Int16Array(l);
-  for (let i = 0; i < l; i++) {
-    int16[i] = data[i] * 32768;
-  }
-  return {
-    data: encode(new Uint8Array(int16.buffer)),
-    mimeType: 'audio/pcm;rate=16000',
-  };
+interface Stop {
+  id: string;
+  rawAddress: string; // What the user typed (The Truth)
+  displayAddress: string; // Formatted for display
+  lat?: number; // Optional - only for internal visual
+  lng?: number; // Optional - only for internal visual
+  notes?: string;
+  status: 'pending' | 'completed' | 'skipped';
 }
 
-interface RoutePlannerSandboxProps {
-    onFindRoute: (stops: string[]) => void;
-    onRefineRoute: (stops: string[], excludedTolls: string[]) => void;
-    result: string;
-    groundingChunks: GroundingChunk[];
-    isLoading: boolean;
-    identifiedTolls: string[];
-    favoritePlaces: FavoritePlace[];
-    onAddTollExpenses: (tollNames: string[]) => void;
+interface SearchResult {
+    label: string;
+    lat: number;
+    lon: number;
+    raw: any;
 }
 
-export const RoutePlannerSandbox: React.FC<RoutePlannerSandboxProps> = ({ 
-    onFindRoute, 
-    onRefineRoute,
-    result, 
-    groundingChunks, 
-    isLoading,
-    identifiedTolls,
-    favoritePlaces,
-    onAddTollExpenses,
-}) => {
-    const [stops, setStops] = useState<string[]>(['Sydney Airport, NSW', 'Chatswood, NSW', 'Parramatta, NSW', 'Bondi Beach, NSW']);
-    const [tollsToInclude, setTollsToInclude] = useState<Set<string>>(new Set());
-    const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
-    const [tollsLogged, setTollsLogged] = useState<boolean>(false);
+type NavApp = 'google' | 'waze';
+type ViewMode = 'planning' | 'active';
 
-    // State for voice commands
-    const [isListening, setIsListening] = useState<boolean>(false);
-    const [transcript, setTranscript] = useState<string>('');
-    const [voiceError, setVoiceError] = useState<string>('');
-    const [isExtracting, setIsExtracting] = useState<boolean>(false);
-    const sessionPromiseRef = useRef<Promise<any> | null>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-    const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-    const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-    const inputAudioContextRef = useRef<AudioContext | null>(null);
+// -- Utils --
 
-
-    // When new tolls are identified, initialize the 'include' set to all of them.
-    useEffect(() => {
-        setTollsToInclude(new Set(identifiedTolls));
-    }, [identifiedTolls]);
-
-    const handleStopChange = (index: number, value: string) => {
-        const newStops = [...stops];
-        newStops[index] = value;
-        setStops(newStops);
-    };
-
-    const handleAddStop = () => {
-        if (stops.length < 6) {
-            setStops([...stops, '']);
+const openExternalNav = (address: string, app: NavApp, lat?: number, lng?: number) => {
+    // PRIORITY: Use GPS Coordinates if available.
+    // This bypasses the need for the external app to "search" again, which eliminates errors.
+    if (lat && lng) {
+        if (app === 'waze') {
+            // Waze Deep Link with Coordinates
+            window.open(`https://waze.com/ul?ll=${lat},${lng}&navigate=yes`, '_blank');
+        } else {
+            // Google Maps Search with Coordinates (drops a pin exactly there)
+            window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, '_blank');
         }
-    };
+        return;
+    }
 
-    const handleRemoveStop = (index: number) => {
-        const newStops = stops.filter((_, i) => i !== index);
-        setStops(newStops);
-    };
+    // FALLBACK: Text Search (only if no coordinates exist)
+    const query = encodeURIComponent(address);
+    
+    if (app === 'waze') {
+        window.open(`https://waze.com/ul?q=${query}&navigate=yes`, '_blank');
+    } else {
+        window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+    }
+};
 
-    const handleTollSelectionChange = (tollName: string, isChecked: boolean) => {
-        setTollsToInclude(prev => {
-            const newSet = new Set(prev);
-            if (isChecked) {
-                newSet.add(tollName);
-            } else {
-                newSet.delete(tollName);
-            }
-            return newSet;
+const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+        alert("Address copied to clipboard!");
+    }).catch(err => {
+        console.error("Failed to copy", err);
+    });
+};
+
+export const RoutePlanner: React.FC<RoutePlannerProps> = ({ onBack }) => {
+  // -- State --
+  const [stops, setStops] = useState<Stop[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>('planning');
+  const [activeStopIndex, setActiveStopIndex] = useState(0);
+  
+  // Settings
+  const [preferredApp, setPreferredApp] = useState<NavApp>('google');
+  
+  // Inputs
+  const [inputAddress, setInputAddress] = useState('');
+  const [inputNotes, setInputNotes] = useState('');
+  
+  // Search / Autocomplete State
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  
+  // Store the full selected object to ensure we capture coords even if text is edited slightly
+  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  
+  const searchTimeoutRef = useRef<any>(null);
+
+  // Map Refs
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+
+  // -- Init --
+  useEffect(() => {
+    // Load Settings
+    const savedApp = localStorage.getItem('subroute_pref_app') as NavApp;
+    if (savedApp) setPreferredApp(savedApp);
+
+    // Load Depot/Start
+    const startStop: Stop = {
+        id: 'start',
+        rawAddress: 'Current Location',
+        displayAddress: 'Current Location',
+        status: 'pending',
+        lat: -27.4698, // Default Brisbane
+        lng: 153.0251
+    };
+    
+    // Try to get real GPS for the start point
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(pos => {
+            setStops(prev => {
+                if (prev.length === 0) return [{ ...startStop, lat: pos.coords.latitude, lng: pos.coords.longitude }];
+                return prev.map(s => s.id === 'start' ? { ...s, lat: pos.coords.latitude, lng: pos.coords.longitude } : s);
+            });
         });
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        setTollsLogged(false); // Reset on new search
-        onFindRoute(stops.filter(stop => stop.trim() !== ''));
+    } else {
+        setStops([startStop]);
     }
+  }, []);
 
-    const handleRefineSubmit = () => {
-        setTollsLogged(false); // Reset on refine
-        const excludedTolls = identifiedTolls.filter(toll => !tollsToInclude.has(toll));
-        onRefineRoute(stops.filter(stop => stop.trim() !== ''), excludedTolls);
-    }
+  // -- Autocomplete Logic --
+  useEffect(() => {
+      // If the input matches the currently selected result, don't search again
+      if (selectedResult && inputAddress === selectedResult.label) return;
 
-    const handleLogTolls = () => {
-        onAddTollExpenses(identifiedTolls);
-        setTollsLogged(true);
-    };
-    
-    const extractAddressesFromTranscript = async (text: string) => {
-        if (!text.trim()) return;
-        setIsExtracting(true);
-        setVoiceError('');
-        
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const prompt = `From the following voice command, extract the destination addresses into a JSON array. The user might say "go to", "direct me to", or "then". Focus only on extracting the locations.
-            
-Command: "${text}"
+      if (!inputAddress || inputAddress.length < 3) {
+          setSearchResults([]);
+          setShowDropdown(false);
+          return;
+      }
 
-Example 1:
-Command: "I need to go to Sydney Airport, then Chatswood, then Parramatta."
-Output:
-{
-  "stops": ["Sydney Airport, NSW", "Chatswood, NSW", "Parramatta, NSW"]
-}
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
-Example 2:
-Command: "Direct me to Bondi Beach."
-Output:
-{
-  "stops": ["Bondi Beach, NSW"]
-}`;
+      searchTimeoutRef.current = setTimeout(async () => {
+          setIsSearching(true);
+          try {
+              // Using Photon API (OpenStreetMap based) for fast, fuzzy search
+              // We bias towards Australia (lon=133, lat=-25) roughly, or better yet, current location if we had it easily accessible here
+              const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(inputAddress)}&limit=5&lat=-27.47&lon=153.02`); // Biased to Brisbane for now
+              const data = await res.json();
+              
+              const results: SearchResult[] = data.features.map((f: any) => {
+                  const props = f.properties;
+                  // Construct a readable label
+                  const parts = [
+                      props.name,
+                      props.housenumber,
+                      props.street,
+                      props.city,
+                      props.state,
+                      props.postcode
+                  ].filter(Boolean);
+                  
+                  // Deduplicate (sometimes name == street)
+                  const uniqueParts = [...new Set(parts)];
+                  
+                  return {
+                      label: uniqueParts.join(', '),
+                      lat: f.geometry.coordinates[1],
+                      lon: f.geometry.coordinates[0],
+                      raw: f
+                  };
+              });
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            stops: {
-                                type: Type.ARRAY,
-                                items: { type: Type.STRING },
-                                description: 'A list of extracted location addresses.'
+              setSearchResults(results);
+              setShowDropdown(true);
+          } catch (e) {
+              console.error("Search failed", e);
+          } finally {
+              setIsSearching(false);
+          }
+      }, 300); // 300ms debounce
+
+      return () => clearTimeout(searchTimeoutRef.current);
+  }, [inputAddress]);
+
+
+  // -- Map Effect (Visual Reference Only) --
+  useEffect(() => {
+      if (!mapContainerRef.current || typeof L === 'undefined') return;
+      
+      if (!mapInstanceRef.current) {
+          const map = L.map(mapContainerRef.current, { zoomControl: false }).setView([-27.4698, 153.0251], 12);
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+              attribution: 'CartoDB'
+          }).addTo(map);
+          mapInstanceRef.current = map;
+      }
+      
+      const map = mapInstanceRef.current;
+
+      // Clear markers
+      markersRef.current.forEach(m => map.removeLayer(m));
+      markersRef.current = [];
+
+      // Draw markers for stops that have coordinates
+      const group = new L.featureGroup();
+      
+      stops.forEach((stop, index) => {
+          if (stop.lat && stop.lng) {
+              const color = index === 0 ? 'bg-black' : (stop.status === 'completed' ? 'bg-green-500' : 'bg-blue-600');
+              const icon = L.divIcon({
+                  html: `<div class="w-8 h-8 ${color} text-white rounded-full flex items-center justify-center font-bold border-2 border-white shadow-md">${index === 0 ? 'S' : index}</div>`,
+                  className: 'bg-transparent',
+                  iconSize: [32, 32],
+                  iconAnchor: [16, 16]
+              });
+              
+              const marker = L.marker([stop.lat, stop.lng], { icon }).addTo(map).bindPopup(stop.displayAddress);
+              markersRef.current.push(marker);
+              marker.addTo(group);
+          }
+      });
+
+      // Fit bounds if we have points
+      if (stops.length > 0 && markersRef.current.length > 0) {
+          map.fitBounds(group.getBounds().pad(0.1));
+      }
+
+  }, [stops]);
+
+  // -- Handlers --
+
+  const handleAppChange = (app: NavApp) => {
+      setPreferredApp(app);
+      localStorage.setItem('subroute_pref_app', app);
+  };
+
+  const selectResult = (res: SearchResult) => {
+      setInputAddress(res.label);
+      setSelectedResult(res); // Lock in the coordinates
+      setShowDropdown(false);
+  };
+
+  const handleAddStop = (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!inputAddress.trim()) return;
+
+      // Determine coords:
+      // 1. Use explicitly selected result if the text matches
+      // 2. Or try to find a match in the current list
+      let lat, lng;
+      
+      if (selectedResult && inputAddress === selectedResult.label) {
+          lat = selectedResult.lat;
+          lng = selectedResult.lon;
+      } else {
+          // Fallback check
+          const match = searchResults.find(r => r.label === inputAddress);
+          if (match) {
+              lat = match.lat;
+              lng = match.lon;
+          }
+      }
+      
+      const newStop: Stop = {
+          id: Date.now().toString(),
+          rawAddress: inputAddress,
+          displayAddress: inputAddress,
+          notes: inputNotes,
+          status: 'pending',
+          lat: lat,
+          lng: lng
+      };
+
+      setStops(prev => [...prev, newStop]);
+      setInputAddress('');
+      setInputNotes('');
+      setSearchResults([]);
+      setSelectedResult(null);
+      setShowDropdown(false);
+  };
+
+  const handleRemoveStop = (id: string) => {
+      setStops(stops.filter(s => s.id !== id));
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+     e.dataTransfer.setData('index', index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+      const dragIndex = parseInt(e.dataTransfer.getData('index'));
+      if (dragIndex === dropIndex) return;
+      
+      const newStops = [...stops];
+      const [moved] = newStops.splice(dragIndex, 1);
+      newStops.splice(dropIndex, 0, moved);
+      
+      setStops(newStops);
+  };
+
+  // -- Navigation Logic --
+
+  const startRun = () => {
+      if (stops.length < 2) return;
+      setActiveStopIndex(1); // Skip 'Current Location'
+      setViewMode('active');
+  };
+
+  const completeStop = () => {
+      const stop = stops[activeStopIndex];
+      
+      // Save log
+      try {
+          const newLog: TripLog = {
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            date: new Date().toISOString().split('T')[0],
+            startTime: new Date().toLocaleTimeString(),
+            endTime: new Date().toLocaleTimeString(),
+            origin: stops[activeStopIndex - 1]?.displayAddress || 'Unknown',
+            destination: stop.displayAddress,
+            distanceKm: 0, 
+            vehicleString: 'Default',
+            durationMinutes: 0 
+          };
+          const logs = JSON.parse(localStorage.getItem('subroute_logs') || '[]');
+          logs.push(newLog);
+          localStorage.setItem('subroute_logs', JSON.stringify(logs));
+      } catch (e) {}
+
+      // Move next
+      const nextStops = [...stops];
+      nextStops[activeStopIndex].status = 'completed';
+      setStops(nextStops);
+
+      if (activeStopIndex < stops.length - 1) {
+          setActiveStopIndex(activeStopIndex + 1);
+      } else {
+          alert("Run Completed!");
+          setViewMode('planning');
+      }
+  };
+
+  // --- RENDER: Active Mode (Driver Interface) ---
+  if (viewMode === 'active') {
+      const stop = stops[activeStopIndex];
+      const isLast = activeStopIndex === stops.length - 1;
+
+      return (
+          <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-900 text-white">
+              {/* Header Info */}
+              <div className="p-6 bg-gray-800 border-b border-gray-700">
+                  <div className="flex justify-between items-start">
+                      <div>
+                          <h2 className="text-gray-400 text-sm font-bold uppercase tracking-widest mb-1">Stop {activeStopIndex} of {stops.length - 1}</h2>
+                          <h1 className="text-3xl font-bold text-white leading-tight">{stop.displayAddress}</h1>
+                          {stop.notes && (
+                              <div className="mt-3 bg-yellow-900/30 text-yellow-200 p-3 rounded border border-yellow-700/50">
+                                  <span className="font-bold mr-2">NOTE:</span>{stop.notes}
+                              </div>
+                          )}
+                      </div>
+                      <button onClick={() => setViewMode('planning')} className="text-gray-400 hover:text-white px-3 py-1 border border-gray-600 rounded">
+                          Exit
+                      </button>
+                  </div>
+              </div>
+
+              {/* Big Action Area */}
+              <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
+                  
+                  {/* The NAVIGATE Button */}
+                  <button 
+                    onClick={() => openExternalNav(stop.rawAddress, preferredApp, stop.lat, stop.lng)}
+                    className={`w-full max-w-md py-8 rounded-2xl shadow-2xl flex flex-col items-center justify-center transform transition-all active:scale-95 ${
+                        preferredApp === 'waze' ? 'bg-blue-400 text-white' : 'bg-blue-600 text-white'
+                    }`}
+                  >
+                      <span className="text-xl font-medium opacity-90 mb-2">Open in {preferredApp === 'waze' ? 'Waze' : 'Google Maps'}</span>
+                      <span className="text-4xl font-black tracking-wide">NAVIGATE</span>
+                  </button>
+
+                  {/* Failsafe Button */}
+                  <button 
+                    onClick={() => copyToClipboard(stop.rawAddress)}
+                    className="flex items-center space-x-2 text-gray-400 hover:text-white bg-gray-800 px-4 py-2 rounded-full border border-gray-600 transition-colors"
+                  >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                      <span>Copy Address (Fail-safe)</span>
+                  </button>
+
+                  <div className="text-gray-500 text-sm text-center max-w-xs mt-4">
+                      {stop.lat && stop.lng ? (
+                          <span className="text-green-500 flex items-center justify-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                              GPS Locked
+                          </span>
+                      ) : (
+                          <span className="text-yellow-500">Address Search (No GPS Lock)</span>
+                      )}
+                  </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-6 bg-gray-800 border-t border-gray-700">
+                  <button 
+                    onClick={completeStop}
+                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-5 rounded-xl text-xl shadow-lg"
+                  >
+                      {isLast ? 'Complete Run' : 'Complete Stop & Next'}
+                  </button>
+              </div>
+          </div>
+      );
+  }
+
+  // --- RENDER: Planning Mode ---
+  return (
+    <div className="flex flex-col h-[calc(100vh-64px)] md:flex-row bg-gray-50">
+      
+      {/* LEFT PANEL: Inputs & List */}
+      <div className="w-full md:w-1/2 lg:w-5/12 flex flex-col h-full border-r border-gray-200 bg-white z-10 shadow-xl">
+          
+          {/* Header */}
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white">
+              <button onClick={onBack} className="text-gray-500 hover:text-gray-800 flex items-center font-medium">
+                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                  Dashboard
+              </button>
+              
+              {/* Settings Toggle */}
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                  <button 
+                    onClick={() => handleAppChange('google')}
+                    className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${preferredApp === 'google' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}
+                  >
+                      Google Maps
+                  </button>
+                  <button 
+                    onClick={() => handleAppChange('waze')}
+                    className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${preferredApp === 'waze' ? 'bg-white shadow text-blue-400' : 'text-gray-500'}`}
+                  >
+                      Waze
+                  </button>
+              </div>
+          </div>
+
+          {/* Input Form */}
+          <div className="p-5 bg-gray-50 border-b border-gray-200 relative">
+              <form onSubmit={handleAddStop} className="space-y-3 relative">
+                  <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Destination Address</label>
+                      <input 
+                        className="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                        placeholder="e.g. 7 Flinders Parade, North Lakes"
+                        value={inputAddress}
+                        onChange={e => {
+                            setInputAddress(e.target.value);
+                            // If user types, we lose the lock unless they re-select
+                            if (selectedResult && e.target.value !== selectedResult.label) {
+                                setSelectedResult(null); 
                             }
-                        }
-                    }
-                }
-            });
-            
-            const jsonResponse = JSON.parse(response.text);
-            const extractedStops = jsonResponse.stops || [];
-
-            if (extractedStops.length > 0) {
-                 // Ensure there are enough stop fields
-                let newStops = [...extractedStops];
-                if (newStops.length < 2) {
-                    newStops.push(''); // Ensure at least start and end fields are visible
-                }
-                while (newStops.length > 6) {
-                    newStops.pop(); // Max 6 stops
-                }
-                setStops(newStops);
-            } else {
-                setVoiceError("Sorry, I couldn't identify any addresses in your command. Please try again.");
-            }
-
-        } catch (error) {
-            console.error("Error extracting addresses:", error);
-            setVoiceError("There was an error processing your voice command.");
-        } finally {
-            setIsExtracting(false);
-        }
-    };
-
-    const handleStartListening = async () => {
-        setIsListening(true);
-        setTranscript('');
-        setVoiceError('');
-        
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            sessionPromiseRef.current = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-                callbacks: {
-                    onopen: () => {
-                        // Fix(2024-07-26): Cast window to `any` to allow access to the vendor-prefixed `webkitAudioContext` for older browser compatibility.
-                        inputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-                        sourceNodeRef.current = inputAudioContextRef.current.createMediaStreamSource(streamRef.current!);
-                        scriptProcessorRef.current = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
-
-                        scriptProcessorRef.current.onaudioprocess = (audioProcessingEvent) => {
-                            const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-                            const pcmBlob = createBlob(inputData);
-                             sessionPromiseRef.current?.then((session) => {
-                                session.sendRealtimeInput({ media: pcmBlob });
-                            });
-                        };
-                        
-                        sourceNodeRef.current.connect(scriptProcessorRef.current);
-                        scriptProcessorRef.current.connect(inputAudioContextRef.current.destination);
-                    },
-                    onmessage: (message: LiveServerMessage) => {
-                        if (message.serverContent?.inputTranscription) {
-                            const text = message.serverContent.inputTranscription.text;
-                            setTranscript(prev => prev + text);
-                        }
-                        // Fix: Per Gemini API guidelines, audio output must be handled when responseModalities includes AUDIO.
-                        // In this component, we only need the transcription, so we will not process/play the audio.
-                        if (message.serverContent?.modelTurn?.parts[0]?.inlineData?.data) {
-                            // Audio data received but not used in this component.
-                        }
-                        if (message.serverContent?.turnComplete) {
-                           // In this implementation, we wait for the user to stop manually.
-                        }
-                    },
-                    onerror: (e: ErrorEvent) => {
-                        console.error('Gemini Live error:', e);
-                        setVoiceError('An error occurred with the voice session.');
-                        handleStopListening(false);
-                    },
-                    onclose: (e: CloseEvent) => {
-                        console.log('Gemini Live session closed');
-                    },
-                },
-                // Fix: Per Gemini API guidelines, responseModalities must be set to AUDIO for Live API connections.
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    inputAudioTranscription: {},
-                }
-            });
-
-        } catch (error) {
-            console.error("Error starting voice session:", error);
-            setVoiceError("Could not start listening. Please ensure microphone permissions are enabled.");
-            setIsListening(false);
-        }
-    };
-    
-    const handleStopListening = async (shouldExtract = true) => {
-        setIsListening(false);
-        
-        if (sessionPromiseRef.current) {
-            const session = await sessionPromiseRef.current;
-            session.close();
-            sessionPromiseRef.current = null;
-        }
-
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-
-        if (scriptProcessorRef.current && sourceNodeRef.current) {
-            sourceNodeRef.current.disconnect();
-            scriptProcessorRef.current.disconnect();
-        }
-
-        if (inputAudioContextRef.current?.state !== 'closed') {
-            await inputAudioContextRef.current?.close();
-        }
-        
-        if (shouldExtract) {
-           await extractAddressesFromTranscript(transcript);
-           setTranscript('');
-        }
-    };
-
-    const selectionHasChanged = identifiedTolls.length !== tollsToInclude.size || 
-                                identifiedTolls.some(toll => !tollsToInclude.has(toll));
-
-    return (
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-brand-gray-200">
-            <h2 className="text-xl font-bold text-brand-gray-800 mb-1">Route Planner</h2>
-            <p className="text-sm text-brand-gray-600 mb-4 border-b pb-4">Plan multi-stop routes and manage toll preferences.</p>
-            
-            <div className="bg-brand-gray-50 p-4 rounded-lg border border-brand-gray-200 mb-4">
-                 <div className="flex items-center justify-between">
-                    <div>
-                         <h3 className="text-md font-semibold text-brand-gray-800">Voice Command</h3>
-                         <p className="text-sm text-brand-gray-600">Click the mic and say where you want to go.</p>
-                    </div>
-                    <button
-                        onClick={isListening ? () => handleStopListening() : handleStartListening}
-                        className={`p-3 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${isListening ? 'bg-red-500 hover:bg-red-600 text-white focus:ring-red-500' : 'bg-brand-blue hover:bg-blue-700 text-white focus:ring-brand-blue'}`}
-                        aria-label={isListening ? 'Stop listening' : 'Start voice command'}
-                    >
-                        {isListening ? (
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1zm4 0a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                        ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                        )}
-                    </button>
-                 </div>
-                 {(isListening || transcript || voiceError || isExtracting) && (
-                    <div className="mt-3 pt-3 border-t border-brand-gray-200">
-                        {isListening && <p className="text-sm text-brand-gray-600 animate-pulse">Listening...</p>}
-                        {transcript && <p className="text-sm text-brand-gray-800 italic">"{transcript}"</p>}
-                        {isExtracting && <p className="text-sm text-brand-blue animate-pulse">Processing your command...</p>}
-                        {voiceError && <p className="text-sm text-red-600">{voiceError}</p>}
-                    </div>
-                 )}
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-3">
-                    {stops.map((stop, index) => (
-                        <div key={index} className="relative flex items-center space-x-2">
-                            <label htmlFor={`stop-${index}`} className="text-sm font-medium text-brand-gray-700 w-24 flex-shrink-0 text-right pr-2">
-                                {index === 0 ? 'Start' : (index === stops.length - 1 ? 'End' : `Stop ${index + 1}`)}
-                            </label>
-                            <input 
-                                type="text" 
-                                id={`stop-${index}`}
-                                value={stop}
-                                onChange={(e) => handleStopChange(index, e.target.value)}
-                                onFocus={() => setActiveDropdown(index)}
-                                onBlur={() => setTimeout(() => setActiveDropdown(null), 150)}
-                                className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
-                                placeholder={index === 0 ? "Start location" : (index === stops.length - 1 ? "End location" : "Waypoint")}
-                                autoComplete="off"
-                            />
-                            {activeDropdown === index && favoritePlaces.length > 0 && (
-                                <div className="absolute top-full left-24 right-7 z-10 mt-1 bg-white border border-brand-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                                  <div className="px-3 py-2 text-xs font-semibold text-brand-gray-500 border-b">Favorite Places</div>
-                                  <ul className="py-1">
-                                    {favoritePlaces.map(place => (
-                                      <li key={place.id}>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            handleStopChange(index, place.address);
-                                            setActiveDropdown(null);
-                                          }}
-                                          className="w-full text-left px-3 py-2 hover:bg-brand-gray-100 transition-colors"
-                                        >
-                                          <div className="flex items-center">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-yellow-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                            </svg>
-                                            <div>
-                                              <p className="text-sm font-medium text-brand-gray-800">{place.name}</p>
-                                              <p className="text-xs text-brand-gray-500">{place.address}</p>
-                                            </div>
-                                          </div>
-                                        </button>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                            )}
-                            {stops.length > 2 ? (
-                                <button type="button" onClick={() => handleRemoveStop(index)} className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100" title="Remove stop">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
-                            ) : <div className="w-7"></div>}
-                        </div>
-                    ))}
-                </div>
-
-                 <div className="flex justify-between items-center pt-2">
-                    <button 
-                        type="button" 
-                        onClick={handleAddStop} 
-                        disabled={stops.length >= 6}
-                        className="text-sm font-semibold text-brand-blue hover:bg-blue-50 px-3 py-1.5 rounded-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                    >
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
-                        </svg>
-                        Add Stop
-                    </button>
-                    <button 
+                        }}
+                        onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                        onFocus={() => inputAddress.length > 2 && setShowDropdown(true)}
+                        autoFocus
+                        autoComplete="off"
+                      />
+                      
+                      {/* Autocomplete Dropdown */}
+                      {showDropdown && searchResults.length > 0 && (
+                          <div className="absolute top-[70px] left-0 w-full bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+                              {searchResults.map((res, idx) => (
+                                  <div 
+                                    key={idx}
+                                    onClick={() => selectResult(res)}
+                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 text-sm text-gray-800 flex justify-between"
+                                  >
+                                      <span>{res.label}</span>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                      <input 
+                        className="flex-1 p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 text-sm"
+                        placeholder="Notes (e.g. Gate code: 1234)"
+                        value={inputNotes}
+                        onChange={e => setInputNotes(e.target.value)}
+                      />
+                      <button 
                         type="submit"
-                        disabled={isLoading}
-                        className="bg-brand-blue text-white font-semibold px-6 py-2 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
-                    >
-                        {isLoading && !result ? (
-                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                        ) : (
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                            </svg>
-                        )}
-                        Find Route
-                    </button>
-                </div>
-            </form>
+                        disabled={!inputAddress}
+                        className="bg-blue-600 text-white font-bold px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                          Add
+                      </button>
+                  </div>
+              </form>
+          </div>
 
-            {(isLoading || result) && (
-                <div className="mt-6 border-t pt-6">
-                    <h3 className="text-lg font-semibold text-brand-gray-800 mb-2">Optimized Route</h3>
-                    {isLoading && !result && (
-                         <div className="flex items-center text-brand-gray-600">
-                            <svg className="animate-spin h-5 w-5 mr-3 text-brand-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <span>Calculating optimized multi-stop route with Gemini...</span>
-                        </div>
-                    )}
-                    {result && <MarkdownViewer content={result} />}
+          {/* List */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-100">
+              {stops.map((stop, index) => (
+                  <div 
+                    key={stop.id}
+                    draggable={index !== 0}
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragOver={handleDragOver}
+                    onDrop={(e) => handleDrop(e, index)}
+                    className={`bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center ${index === 0 ? 'opacity-75 bg-gray-50' : 'cursor-move hover:border-blue-300'}`}
+                  >
+                      <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white mr-4 ${index === 0 ? 'bg-gray-800' : 'bg-blue-500'}`}>
+                          {index === 0 ? 'S' : index}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 truncate">{stop.displayAddress}</p>
+                          {stop.notes && <p className="text-xs text-gray-500 mt-0.5">Note: {stop.notes}</p>}
+                          {index !== 0 && !stop.lat && <span className="inline-block px-2 py-0.5 bg-yellow-100 text-yellow-800 text-[10px] rounded mt-1">Manual Address (Text Only)</span>}
+                      </div>
+                      {index !== 0 && (
+                          <button onClick={() => handleRemoveStop(stop.id)} className="text-gray-400 hover:text-red-500 p-2">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                          </button>
+                      )}
+                  </div>
+              ))}
+              {stops.length < 2 && (
+                  <div className="text-center py-10 px-4">
+                      <p className="text-gray-400 text-sm">Start typing an address above.</p>
+                      <p className="text-gray-400 text-xs mt-1">Select a suggestion OR just keep typing and hit Add.</p>
+                  </div>
+              )}
+          </div>
 
-                    {!isLoading && identifiedTolls.length > 0 && (
-                        <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <h4 className="text-md font-semibold text-yellow-900 mb-3">Toll Road Customization</h4>
-                            <p className="text-sm text-yellow-800 mb-3">The suggested route includes these toll roads. Uncheck any you wish to exclude from the route.</p>
-                            <div className="space-y-2">
-                                {identifiedTolls.map(toll => (
-                                    <label key={toll} className="flex items-center text-sm text-brand-gray-800">
-                                        <input
-                                            type="checkbox"
-                                            checked={tollsToInclude.has(toll)}
-                                            onChange={(e) => handleTollSelectionChange(toll, e.target.checked)}
-                                            className="h-4 w-4 rounded border-brand-gray-300 text-brand-blue focus:ring-brand-blue"
-                                        />
-                                        <span className="ml-2">{toll}</span>
-                                    </label>
-                                ))}
-                            </div>
-                            <button 
-                                onClick={handleRefineSubmit}
-                                disabled={isLoading || !selectionHasChanged}
-                                className="mt-4 bg-yellow-500 text-white font-semibold px-4 py-1.5 text-sm rounded-md shadow-sm hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:bg-brand-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
-                            >
-                                {isLoading ? 'Updating...' : 'Update Route with Selected Tolls'}
-                            </button>
+          {/* Footer */}
+          <div className="p-4 bg-white border-t border-gray-200">
+              <button 
+                onClick={startRun}
+                disabled={stops.length < 2}
+                className="w-full bg-green-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-green-700 disabled:opacity-50 disabled:shadow-none text-lg"
+              >
+                  Start Run ({stops.length - 1} Stops)
+              </button>
+          </div>
+      </div>
 
-                             <div className="mt-4 border-t border-yellow-200 pt-4">
-                                <button
-                                    onClick={handleLogTolls}
-                                    disabled={tollsLogged}
-                                    className="w-full bg-white text-brand-blue font-semibold px-4 py-2 text-sm rounded-md border border-brand-blue shadow-sm hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue disabled:bg-brand-gray-100 disabled:text-brand-gray-500 disabled:border-brand-gray-200 disabled:cursor-not-allowed flex items-center justify-center"
-                                >
-                                    {tollsLogged ? (
-                                        <>
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-green-500" viewBox="0 0 20 20" fill="currentColor">
-                                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                            </svg>
-                                            Tolls Logged as Expenses
-                                        </>
-                                    ) : (
-                                         'Log Identified Tolls as Expenses'
-                                    )}
-                                </button>
-                                { !tollsLogged && <p className="text-xs text-yellow-700 mt-2 text-center">This will add each toll as a $0.00 expense for you to edit later.</p> }
-                            </div>
-                        </div>
-                    )}
+      {/* RIGHT PANEL: Map (Visual Reference Only) */}
+      <div className="hidden md:block w-1/2 lg:w-7/12 h-full relative bg-gray-200">
+          <div ref={mapContainerRef} className="absolute inset-0" />
+          <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur px-4 py-2 rounded-lg text-xs text-gray-500 shadow-sm z-[1000]">
+              Visual Reference Only
+          </div>
+      </div>
 
-                    {groundingChunks.length > 0 && (
-                        <div className="mt-4">
-                            <h4 className="text-sm font-semibold text-brand-gray-700">Sources from Google Maps:</h4>
-                            <ul className="list-disc list-inside mt-2 space-y-1">
-                                {groundingChunks.map((chunk, index) => (
-                                    <li key={index} className="text-sm">
-                                        <a href={chunk.maps.uri} target="_blank" rel="noopener noreferrer" className="text-brand-blue hover:underline">
-                                            {chunk.maps.title}
-                                        </a>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
+    </div>
+  );
+};

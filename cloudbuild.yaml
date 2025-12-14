@@ -1,0 +1,19 @@
+steps:
+  # Install dependencies
+  - name: 'node:18'
+    entrypoint: npm
+    args: ['ci']
+
+  # Build the React/Vite application
+  - name: 'node:18'
+    entrypoint: npm
+    args: ['run', 'build']
+
+  # Deploy to App Engine
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['app', 'deploy', '--quiet']
+
+timeout: '1600s'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

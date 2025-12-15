@@ -1,42 +1,31 @@
 runtime: nodejs18
+service: default
 
-# Handlers for static files and SPA routing
 handlers:
-  # Serve static assets with caching
-  - url: /assets
-    static_dir: dist/assets
+  # Serve static assets with long-term caching
+  - url: /assets/(.*)
+    static_files: dist/assets/\1
+    upload: dist/assets/.*
     secure: always
-    http_headers:
-      Cache-Control: 'public, max-age=31536000, immutable'
+    expiration: 1y
 
-  # Serve other static files (favicon, etc)
-  - url: /(.*\.(ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot|css|js|json))
-    static_files: dist/\1
-    upload: dist/.*\.(ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot|css|js|json)
-    secure: always
-    http_headers:
-      Cache-Control: 'public, max-age=3600'
-
-  # Serve index.html for all other routes (SPA routing)
-  - url: /.*
+  # Serve index.html for root
+  - url: /
     static_files: dist/index.html
     upload: dist/index.html
     secure: always
-    http_headers:
-      Cache-Control: 'no-cache, no-store, must-revalidate'
 
-# Skip building - we build in Cloud Build
+  # Serve all other routes to index.html for SPA routing
+  - url: /(.*)
+    static_files: dist/index.html
+    upload: dist/index.html
+    secure: always
+
+# Ensure dist folder is included
 skip_files:
-  - ^(.*/)?#.*#$
-  - ^(.*/)?.*~$
-  - ^(.*/)?.*\.py[co]$
-  - ^(.*/)?.*/RCS/.*$
   - ^(.*/)?\..*$
-  - ^(.*/)?.*\.bak$
   - ^node_modules/.*$
   - ^src/.*$
-  - ^components/.*$
-
-# Environment variables (if needed)
-env_variables:
-  NODE_ENV: 'production'
+  - ^(.*/)?#.*#$
+  - ^(.*/)?.*~$
+  - ^(.*/)?.*\.bak$

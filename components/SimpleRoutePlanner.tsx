@@ -8,6 +8,8 @@ interface Stop {
   id: string;
   address: string;
   location: google.maps.LatLngLiteral;
+  type?: 'pickup' | 'delivery' | 'depot';
+  notes?: string;
 }
 
 export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }) => {
@@ -36,6 +38,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const [depotSearchValue, setDepotSearchValue] = useState('');
   const depotSearchRef = useRef<HTMLInputElement>(null);
   const depotAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const [pendingStop, setPendingStop] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
 
   useEffect(() => {
     // Get user's current location
@@ -105,8 +108,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             lng: place.geometry.location.lng(),
           };
 
-          // Add stop
-          addStop(place.formatted_address || place.name || 'Unknown', location);
+          // Set as pending stop - user will choose pickup or delivery
+          setPendingStop({
+            address: place.formatted_address || place.name || 'Unknown',
+            location,
+          });
 
           // Clear search
           setSearchValue('');
@@ -133,14 +139,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     }
   }, [currentLocation]);
 
-  const addStop = (address: string, location: google.maps.LatLngLiteral) => {
+  const addStop = (address: string, location: google.maps.LatLngLiteral, type: 'pickup' | 'delivery') => {
     const newStop: Stop = {
       id: Date.now().toString(),
       address,
       location,
+      type,
     };
 
     setStops((prev) => [...prev, newStop]);
+    setPendingStop(null);
   };
 
   const removeStop = (id: string) => {
@@ -154,11 +162,34 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ location: currentLocation }, (results, status) => {
       if (status === 'OK' && results && results[0]) {
-        addStop(results[0].formatted_address, currentLocation);
+        setPendingStop({
+          address: results[0].formatted_address,
+          location: currentLocation,
+        });
       } else {
-        addStop('Current Location', currentLocation);
+        setPendingStop({
+          address: 'Current Location',
+          location: currentLocation,
+        });
       }
     });
+  };
+
+  const toggleStopType = (id: string) => {
+    setStops((prev) =>
+      prev.map((stop) =>
+        stop.id === id
+          ? { ...stop, type: stop.type === 'pickup' ? 'delivery' : 'pickup' }
+          : stop
+      )
+    );
+  };
+
+  const groupPickupsFirst = () => {
+    const pickups = stops.filter((s) => s.type === 'pickup');
+    const deliveries = stops.filter((s) => s.type === 'delivery');
+    const depots = stops.filter((s) => s.type === 'depot' || !s.type);
+    setStops([...depots, ...pickups, ...deliveries]);
   };
 
   // Calculate and display route whenever stops change
@@ -287,6 +318,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       id: 'depot',
       address,
       location,
+      type: 'depot',
     };
     setDepotAddress(depot);
     localStorage.setItem('subroute_depot', JSON.stringify(depot));
@@ -297,22 +329,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const addDepotAsStart = () => {
     if (!depotAddress) return;
     // Remove depot if already in stops
-    const filtered = stops.filter((s) => s.id !== 'depot');
-    setStops([depotAddress, ...filtered]);
+    const filtered = stops.filter((s) => !s.id.includes('depot'));
+    setStops([{ ...depotAddress, id: 'depot-start' }, ...filtered]);
   };
 
   const addDepotAsEnd = () => {
     if (!depotAddress) return;
     // Remove depot if already in stops
-    const filtered = stops.filter((s) => s.id !== 'depot');
-    setStops([...filtered, depotAddress]);
+    const filtered = stops.filter((s) => !s.id.includes('depot'));
+    setStops([...filtered, { ...depotAddress, id: 'depot-end' }]);
   };
 
   const addDepotRoundTrip = () => {
     if (!depotAddress) return;
     // Remove depot if already in stops
-    const filtered = stops.filter((s) => s.id !== 'depot');
-    setStops([{ ...depotAddress, id: 'depot-start' }, ...filtered, { ...depotAddress, id: 'depot-end' }]);
+    const filtered = stops.filter((s) => !s.id.includes('depot'));
+    setStops([{ ...depotAddress, id: 'depot-start', type: 'depot' }, ...filtered, { ...depotAddress, id: 'depot-end', type: 'depot' }]);
   };
 
   const clearDepot = () => {
@@ -387,6 +419,40 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             <span>Add Current Location</span>
           </button>
 
+          {/* Pickup/Delivery Choice Modal */}
+          {pendingStop && (
+            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-xs font-semibold text-blue-900 mb-2 truncate">{pendingStop.address}</p>
+              <p className="text-xs text-blue-700 mb-2">Add this stop as:</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => addStop(pendingStop.address, pendingStop.location, 'pickup')}
+                  className="px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-xs font-medium flex items-center justify-center space-x-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                  </svg>
+                  <span>Pickup</span>
+                </button>
+                <button
+                  onClick={() => addStop(pendingStop.address, pendingStop.location, 'delivery')}
+                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-medium flex items-center justify-center space-x-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                  </svg>
+                  <span>Delivery</span>
+                </button>
+              </div>
+              <button
+                onClick={() => setPendingStop(null)}
+                className="mt-2 w-full text-xs text-blue-600 hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           {/* Depot Address Section */}
           <div className="mt-3 pt-3 border-t border-gray-200">
             {depotAddress ? (
@@ -452,39 +518,71 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             </div>
           ) : (
             <div className="space-y-2">
-              {stops.map((stop, index) => (
-                <div
-                  key={stop.id}
-                  draggable
-                  onDragStart={() => handleDragStart(index)}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDrop={(e) => handleDrop(e, index)}
-                  className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 cursor-move"
-                >
-                  <div className="flex-shrink-0 flex items-center space-x-2">
-                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
-                    </svg>
-                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
-                      {index === 0 ? 'A' : index === stops.length - 1 ? 'B' : index + 1}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{stop.address}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {index === 0 ? 'Start' : index === stops.length - 1 ? 'Destination' : `Stop ${index}`}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => removeStop(stop.id)}
-                    className="flex-shrink-0 text-gray-400 hover:text-red-600"
+              {stops.map((stop, index) => {
+                const isPickup = stop.type === 'pickup';
+                const isDelivery = stop.type === 'delivery';
+                const isDepot = stop.type === 'depot';
+                const bgColor = isPickup ? 'bg-amber-50 border-amber-200' : isDelivery ? 'bg-green-50 border-green-200' : isDepot ? 'bg-gray-50 border-gray-300' : 'bg-gray-50 border-gray-200';
+                const markerColor = isPickup ? 'bg-amber-600' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-600' : 'bg-blue-600';
+
+                return (
+                  <div
+                    key={stop.id}
+                    draggable
+                    onDragStart={() => handleDragStart(index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDrop={(e) => handleDrop(e, index)}
+                    className={`flex items-start space-x-2 p-3 rounded-lg border hover:opacity-80 cursor-move ${bgColor}`}
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                  </button>
-                </div>
-              ))}
+                    <div className="flex-shrink-0 flex items-center space-x-2">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
+                      </svg>
+                      <div className={`w-7 h-7 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
+                        {index + 1}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2 mb-0.5">
+                        <p className="text-sm font-medium text-gray-900 truncate flex-1">{stop.address}</p>
+                      </div>
+                      {(isPickup || isDelivery) && (
+                        <button
+                          onClick={() => toggleStopType(stop.id)}
+                          className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold ${
+                            isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
+                          }`}
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {isPickup ? (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                            )}
+                          </svg>
+                          <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
+                        </button>
+                      )}
+                      {isDepot && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold bg-gray-600 text-white">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                          </svg>
+                          <span>DEPOT</span>
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeStop(stop.id)}
+                      className="flex-shrink-0 text-gray-400 hover:text-red-600"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                      </svg>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -492,6 +590,44 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
         {/* Footer */}
         {stops.length > 0 && (
           <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3">
+            {/* Stop Summary */}
+            {(() => {
+              const pickupCount = stops.filter(s => s.type === 'pickup').length;
+              const deliveryCount = stops.filter(s => s.type === 'delivery').length;
+              const hasMultipleTypes = pickupCount > 0 && deliveryCount > 0;
+
+              return (hasMultipleTypes || pickupCount > 0 || deliveryCount > 0) && (
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center space-x-3">
+                    {pickupCount > 0 && (
+                      <span className="flex items-center space-x-1 text-amber-700 font-semibold">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                        </svg>
+                        <span>{pickupCount} Pickup{pickupCount !== 1 ? 's' : ''}</span>
+                      </span>
+                    )}
+                    {deliveryCount > 0 && (
+                      <span className="flex items-center space-x-1 text-green-700 font-semibold">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                        </svg>
+                        <span>{deliveryCount} Deliver{deliveryCount !== 1 ? 'y' : 'ies'}</span>
+                      </span>
+                    )}
+                  </div>
+                  {hasMultipleTypes && (
+                    <button
+                      onClick={groupPickupsFirst}
+                      className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700"
+                    >
+                      Group Pickups First
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Route Details */}
             {routeDetails && (
               <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">

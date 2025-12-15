@@ -190,11 +190,59 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     );
   };
 
+  // Calculate distance between two points using Haversine formula
+  const calculateDistance = (loc1: google.maps.LatLngLiteral, loc2: google.maps.LatLngLiteral): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (loc2.lat - loc1.lat) * Math.PI / 180;
+    const dLon = (loc2.lng - loc1.lng) * Math.PI / 180;
+    const a =
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(loc1.lat * Math.PI / 180) * Math.cos(loc2.lat * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Optimize route order using nearest neighbor algorithm
+  const optimizeStops = (stopsToOptimize: Stop[]): Stop[] => {
+    if (stopsToOptimize.length <= 1) return stopsToOptimize;
+
+    const optimized: Stop[] = [];
+    const remaining = [...stopsToOptimize];
+
+    // Start with the first stop
+    optimized.push(remaining.shift()!);
+
+    // Keep finding the nearest unvisited stop
+    while (remaining.length > 0) {
+      const current = optimized[optimized.length - 1];
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+
+      remaining.forEach((stop, index) => {
+        const distance = calculateDistance(current.location, stop.location);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+
+      optimized.push(remaining.splice(nearestIndex, 1)[0]);
+    }
+
+    return optimized;
+  };
+
   const groupPickupsFirst = () => {
     const pickups = stops.filter((s) => s.type === 'pickup');
     const deliveries = stops.filter((s) => s.type === 'delivery');
     const depots = stops.filter((s) => s.type === 'depot' || !s.type);
-    setStops([...depots, ...pickups, ...deliveries]);
+
+    // Optimize each group separately
+    const optimizedPickups = optimizeStops(pickups);
+    const optimizedDeliveries = optimizeStops(deliveries);
+
+    setStops([...depots, ...optimizedPickups, ...optimizedDeliveries]);
   };
 
   // Calculate and display route whenever stops change
@@ -650,9 +698,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
                   {hasMultipleTypes && (
                     <button
                       onClick={groupPickupsFirst}
-                      className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700"
+                      className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center space-x-1"
                     >
-                      Group Pickups First
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                      </svg>
+                      <span>Optimize Route</span>
                     </button>
                   )}
                 </div>

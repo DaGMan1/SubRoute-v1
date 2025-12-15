@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import type { User } from './types';
 import { Auth } from './components/AuthSandbox';
 import { Dashboard } from './components/Dashboard';
-import { CourierRoutePlanner } from './components/CourierRoutePlanner';
+import { SimpleRoutePlanner } from './components/SimpleRoutePlanner';
 import { VehicleManager } from './components/VehicleManagerSandbox';
 import { TripLogbook } from './components/TripLogbookSandbox';
 import { OdometerTracker } from './components/OdometerTracker';
@@ -91,7 +91,7 @@ const App: React.FC = () => {
           <Dashboard user={currentUser} onNavigate={handleNavigate} />
         )}
         {currentView === 'planner' && (
-          <CourierRoutePlanner onBack={() => setCurrentView('dashboard')} />
+          <SimpleRoutePlanner onBack={() => setCurrentView('dashboard')} />
         )}
         {currentView === 'vehicles' && (
           <VehicleManager user={currentUser} onBack={() => setCurrentView('dashboard')} />

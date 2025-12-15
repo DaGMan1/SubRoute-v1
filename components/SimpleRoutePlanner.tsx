@@ -24,6 +24,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [routeDetails, setRouteDetails] = useState<{ distance: string; duration: string } | null>(null);
+  const [depotAddress, setDepotAddress] = useState<Stop | null>(() => {
+    try {
+      const saved = localStorage.getItem('subroute_depot');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [showDepotModal, setShowDepotModal] = useState(false);
+  const [depotSearchValue, setDepotSearchValue] = useState('');
+  const depotSearchRef = useRef<HTMLInputElement>(null);
+  const depotAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   useEffect(() => {
     // Get user's current location
@@ -270,6 +282,66 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     window.open(url, '_blank');
   };
 
+  const saveDepotAddress = (address: string, location: google.maps.LatLngLiteral) => {
+    const depot: Stop = {
+      id: 'depot',
+      address,
+      location,
+    };
+    setDepotAddress(depot);
+    localStorage.setItem('subroute_depot', JSON.stringify(depot));
+    setShowDepotModal(false);
+    setDepotSearchValue('');
+  };
+
+  const addDepotAsStart = () => {
+    if (!depotAddress) return;
+    // Remove depot if already in stops
+    const filtered = stops.filter((s) => s.id !== 'depot');
+    setStops([depotAddress, ...filtered]);
+  };
+
+  const addDepotAsEnd = () => {
+    if (!depotAddress) return;
+    // Remove depot if already in stops
+    const filtered = stops.filter((s) => s.id !== 'depot');
+    setStops([...filtered, depotAddress]);
+  };
+
+  const addDepotRoundTrip = () => {
+    if (!depotAddress) return;
+    // Remove depot if already in stops
+    const filtered = stops.filter((s) => s.id !== 'depot');
+    setStops([{ ...depotAddress, id: 'depot-start' }, ...filtered, { ...depotAddress, id: 'depot-end' }]);
+  };
+
+  const clearDepot = () => {
+    setDepotAddress(null);
+    localStorage.removeItem('subroute_depot');
+  };
+
+  // Initialize depot autocomplete when modal opens
+  useEffect(() => {
+    if (showDepotModal && depotSearchRef.current && !depotAutocompleteRef.current && window.google) {
+      depotAutocompleteRef.current = new google.maps.places.Autocomplete(depotSearchRef.current, {
+        componentRestrictions: { country: 'au' },
+        fields: ['formatted_address', 'geometry', 'name'],
+      });
+
+      depotAutocompleteRef.current.addListener('place_changed', () => {
+        const place = depotAutocompleteRef.current?.getPlace();
+        if (!place || !place.geometry || !place.geometry.location) return;
+
+        const location = {
+          lat: place.geometry.location.lat(),
+          lng: place.geometry.location.lng(),
+        };
+
+        saveDepotAddress(place.formatted_address || place.name || 'Depot', location);
+      });
+    }
+  }, [showDepotModal]);
+
   return (
     <div className="flex h-[calc(100vh-64px)] bg-gray-50">
       {/* Left Sidebar - Stops List */}
@@ -314,6 +386,58 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             </svg>
             <span>Add Current Location</span>
           </button>
+
+          {/* Depot Address Section */}
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            {depotAddress ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-600 uppercase">Depot Address</span>
+                  <button onClick={() => setShowDepotModal(true)} className="text-xs text-blue-600 hover:underline">
+                    Change
+                  </button>
+                </div>
+                <div className="bg-green-50 rounded-lg p-2 border border-green-200">
+                  <div className="flex items-start space-x-2">
+                    <svg className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                    </svg>
+                    <p className="text-xs text-green-900 flex-1">{depotAddress.address}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={addDepotAsStart}
+                    className="px-2 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
+                  >
+                    Start from Depot
+                  </button>
+                  <button
+                    onClick={addDepotAsEnd}
+                    className="px-2 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
+                  >
+                    Return to Depot
+                  </button>
+                </div>
+                <button
+                  onClick={addDepotRoundTrip}
+                  className="w-full px-2 py-1.5 bg-green-700 text-white rounded text-xs font-medium hover:bg-green-800"
+                >
+                  Round Trip (Start & Return)
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowDepotModal(true)}
+                className="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-200"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                </svg>
+                <span>Set Depot Address</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Stops List */}
@@ -415,6 +539,58 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       <div className="flex-1 relative">
         <div ref={mapRef} className="absolute inset-0" />
       </div>
+
+      {/* Depot Address Modal */}
+      {showDepotModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Set Depot Address</h2>
+                <button
+                  onClick={() => setShowDepotModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4">
+                Set your home depot or warehouse address. This will be your default starting/ending point for routes.
+              </p>
+
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                  </svg>
+                </div>
+                <input
+                  ref={depotSearchRef}
+                  type="text"
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Search for depot address..."
+                  value={depotSearchValue}
+                  onChange={(e) => setDepotSearchValue(e.target.value)}
+                />
+              </div>
+
+              {depotAddress && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={clearDepot}
+                    className="text-sm text-red-600 hover:underline"
+                  >
+                    Clear Depot Address
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -20,12 +20,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const directionsServiceRef = useRef<google.maps.DirectionsService | null>(null);
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
+  const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
 
   const [searchValue, setSearchValue] = useState('');
   const [stops, setStops] = useState<Stop[]>([]);
   const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [routeDetails, setRouteDetails] = useState<{ distance: string; duration: string } | null>(null);
+  const [showTraffic, setShowTraffic] = useState(false);
   const [depotAddress, setDepotAddress] = useState<Stop | null>(() => {
     try {
       const saved = localStorage.getItem('subroute_depot');
@@ -85,6 +87,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
           strokeWeight: 5,
         },
       });
+
+      // Initialize Traffic Layer
+      trafficLayerRef.current = new google.maps.TrafficLayer();
 
       // Initialize Autocomplete on search input
       if (searchInputRef.current) {
@@ -352,6 +357,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     localStorage.removeItem('subroute_depot');
   };
 
+  const toggleTrafficLayer = () => {
+    if (!trafficLayerRef.current || !googleMapRef.current) return;
+
+    if (showTraffic) {
+      trafficLayerRef.current.setMap(null);
+    } else {
+      trafficLayerRef.current.setMap(googleMapRef.current);
+    }
+    setShowTraffic(!showTraffic);
+  };
+
   // Initialize depot autocomplete when modal opens
   useEffect(() => {
     if (showDepotModal && depotSearchRef.current && !depotAutocompleteRef.current && window.google) {
@@ -417,6 +433,21 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
             </svg>
             <span>Add Current Location</span>
+          </button>
+
+          {/* Traffic Layer Toggle */}
+          <button
+            onClick={toggleTrafficLayer}
+            className={`mt-2 w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium ${
+              showTraffic
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-gray-50 text-gray-700 border border-gray-300 hover:bg-gray-100'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+            </svg>
+            <span>{showTraffic ? 'Hide Traffic' : 'Show Traffic'}</span>
           </button>
 
           {/* Pickup/Delivery Choice Modal */}

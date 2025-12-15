@@ -22,6 +22,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const [searchValue, setSearchValue] = useState('');
   const [stops, setStops] = useState<Stop[]>([]);
   const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [routeDetails, setRouteDetails] = useState<{ distance: string; duration: string } | null>(null);
 
   useEffect(() => {
     // Get user's current location
@@ -185,9 +187,29 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     directionsServiceRef.current.route(request, (result, status) => {
       if (status === 'OK' && result) {
         directionsRendererRef.current?.setDirections(result);
+
+        // Calculate total distance and duration
+        const route = result.routes[0];
+        let totalDistance = 0;
+        let totalDuration = 0;
+
+        route.legs.forEach((leg) => {
+          totalDistance += leg.distance?.value || 0;
+          totalDuration += leg.duration?.value || 0;
+        });
+
+        const distanceKm = (totalDistance / 1000).toFixed(1);
+        const durationMins = Math.round(totalDuration / 60);
+
+        setRouteDetails({
+          distance: `${distanceKm} km`,
+          duration: `${durationMins} min`,
+        });
+
         console.log('Route calculated successfully');
       } else {
         console.error('Directions request failed:', status);
+        setRouteDetails(null);
       }
     });
   }, [stops]);
@@ -195,6 +217,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const clearAll = () => {
     setStops([]);
     setSearchValue('');
+    setRouteDetails(null);
     if (searchInputRef.current) {
       searchInputRef.current.value = '';
     }
@@ -205,6 +228,46 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       googleMapRef.current.setCenter(currentLocation);
       googleMapRef.current.setZoom(12);
     }
+  };
+
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null) return;
+
+    const newStops = [...stops];
+    const [draggedStop] = newStops.splice(draggedIndex, 1);
+    newStops.splice(dropIndex, 0, draggedStop);
+
+    setStops(newStops);
+    setDraggedIndex(null);
+  };
+
+  const startNavigation = () => {
+    if (stops.length < 2) return;
+
+    // Open Google Maps with directions
+    const origin = `${stops[0].location.lat},${stops[0].location.lng}`;
+    const destination = `${stops[stops.length - 1].location.lat},${stops[stops.length - 1].location.lng}`;
+
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+
+    if (stops.length > 2) {
+      const waypoints = stops
+        .slice(1, -1)
+        .map((stop) => `${stop.location.lat},${stop.location.lng}`)
+        .join('|');
+      url += `&waypoints=${waypoints}`;
+    }
+
+    window.open(url, '_blank');
   };
 
   return (
@@ -268,10 +331,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
               {stops.map((stop, index) => (
                 <div
                   key={stop.id}
-                  className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100"
+                  draggable
+                  onDragStart={() => handleDragStart(index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDrop={(e) => handleDrop(e, index)}
+                  className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 cursor-move"
                 >
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
-                    {index === 0 ? 'A' : index === stops.length - 1 ? 'B' : index + 1}
+                  <div className="flex-shrink-0 flex items-center space-x-2">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
+                    </svg>
+                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
+                      {index === 0 ? 'A' : index === stops.length - 1 ? 'B' : index + 1}
+                    </div>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{stop.address}</p>
@@ -295,7 +367,40 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
 
         {/* Footer */}
         {stops.length > 0 && (
-          <div className="p-4 border-t border-gray-200 bg-gray-50">
+          <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3">
+            {/* Route Details */}
+            {routeDetails && (
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                    <span className="font-semibold text-blue-900">{routeDetails.distance}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span className="font-semibold text-blue-900">{routeDetails.duration}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Start Navigation Button */}
+            {stops.length >= 2 && (
+              <button
+                onClick={startNavigation}
+                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm flex items-center justify-center space-x-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                </svg>
+                <span>Start Navigation</span>
+              </button>
+            )}
+
             <button
               onClick={clearAll}
               className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm"

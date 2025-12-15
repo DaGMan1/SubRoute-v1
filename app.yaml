@@ -1,4 +1,4 @@
-runtime: nodejs18
+runtime: nodejs20
 service: default
 
 handlers:
@@ -7,7 +7,7 @@ handlers:
     static_files: dist/assets/\1
     upload: dist/assets/.*
     secure: always
-    expiration: 1y
+    expiration: 365d
 
   # Serve index.html for root
   - url: /
@@ -20,12 +20,3 @@ handlers:
     static_files: dist/index.html
     upload: dist/index.html
     secure: always
-
-# Ensure dist folder is included
-skip_files:
-  - ^(.*/)?\..*$
-  - ^node_modules/.*$
-  - ^src/.*$
-  - ^(.*/)?#.*#$
-  - ^(.*/)?.*~$
-  - ^(.*/)?.*\.bak$

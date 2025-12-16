@@ -45,6 +45,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const [routeStartTime, setRouteStartTime] = useState<number | null>(null);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const [routeBegunFromDepot, setRouteBegunFromDepot] = useState(false);
 
   useEffect(() => {
     // Get user's current location
@@ -334,6 +335,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     setStops([]);
     setSearchValue('');
     setRouteDetails(null);
+    setRouteBegunFromDepot(false);
     if (searchInputRef.current) {
       searchInputRef.current.value = '';
     }
@@ -519,6 +521,24 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const clearDepot = () => {
     setDepotAddress(null);
     localStorage.removeItem('subroute_depot');
+  };
+
+  const beginRouteFromDepot = () => {
+    if (!depotAddress) {
+      alert('Please set a depot address first');
+      return;
+    }
+
+    // Check if depot already exists in stops
+    const hasDepot = stops.some((s) => s.id.includes('depot'));
+
+    if (!hasDepot) {
+      // Add depot as first stop
+      setStops([{ ...depotAddress, id: 'depot-start', type: 'depot' }]);
+    }
+
+    // Mark route as begun from depot
+    setRouteBegunFromDepot(true);
   };
 
   const toggleTrafficLayer = () => {
@@ -732,26 +752,43 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
                     <p className="text-xs text-green-900 flex-1">{depotAddress.address}</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={addDepotAsStart}
-                    className="px-2 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
-                  >
-                    Start from Depot
-                  </button>
-                  <button
-                    onClick={addDepotAsEnd}
-                    className="px-2 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
-                  >
-                    Return to Depot
-                  </button>
-                </div>
-                <button
-                  onClick={addDepotRoundTrip}
-                  className="w-full px-2 py-1.5 bg-green-700 text-white rounded text-xs font-medium hover:bg-green-800"
-                >
-                  Round Trip (Start & Return)
-                </button>
+                {!routeBegunFromDepot ? (
+                  <>
+                    {/* Big "Begin Route from Depot" button */}
+                    <button
+                      onClick={beginRouteFromDepot}
+                      className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-bold flex items-center justify-center space-x-2 shadow-md"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                      </svg>
+                      <span>Begin Route from Depot</span>
+                    </button>
+                    <p className="text-xs text-gray-500 text-center">
+                      Start your day - depot will be added as first stop
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {/* Route started indicator */}
+                    <div className="bg-green-100 border border-green-300 rounded-lg p-2 mb-2">
+                      <div className="flex items-center space-x-2">
+                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span className="text-xs font-semibold text-green-900">Route started from depot</span>
+                      </div>
+                    </div>
+
+                    {/* Original buttons for adding depot at end */}
+                    <button
+                      onClick={addDepotAsEnd}
+                      className="w-full px-2 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
+                    >
+                      Return to Depot (Add at End)
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <button

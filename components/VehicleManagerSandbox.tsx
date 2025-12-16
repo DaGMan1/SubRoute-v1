@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import type { Vehicle, User } from '../types';
 
 interface VehicleManagerProps {
-  onBack: () => void;
+  onBack?: () => void;
   user: User;
 }
 
@@ -187,9 +187,6 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
       <div className="bg-white shadow-sm border-b border-brand-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center">
-            <button onClick={onBack} className="text-brand-gray-500 hover:text-brand-blue mr-4 transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-            </button>
             <h1 className="text-2xl font-bold text-brand-gray-900">My Vehicles</h1>
           </div>
           {!isAdding && (

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { TripLog } from '../types';
 
 interface SimpleRoutePlannerProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 interface Stop {
@@ -447,7 +447,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       localStorage.setItem('subroute_logs', JSON.stringify(logs));
 
       // Show success message
-      alert(`Trip logged successfully!\n\nDistance: ${routeDetails.distance}\nDuration: ${routeDetails.duration}\n\nView in Trip Logbook`);
+      alert(`Trip logged successfully!\n\nDistance: ${routeDetails.distance}\nDuration: ${routeDetails.duration}\n\nView in Trip Info`);
 
       // Clear the route
       clearAll();
@@ -598,17 +598,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     <div className="flex h-[calc(100vh-64px)] bg-gray-50">
       {/* Left Sidebar - Stops List */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg">
-        {/* Header */}
+        {/* Search and Controls */}
         <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <button onClick={onBack} className="text-gray-500 hover:text-gray-800 flex items-center font-medium">
-              <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
-              </svg>
-              Back
-            </button>
-            <h1 className="text-lg font-bold text-gray-900">Route Planner</h1>
-          </div>
 
           {/* Search Box */}
           <div className="relative">

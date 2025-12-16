@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import type { Vehicle, FuelStop, ServiceReminder } from '../types';
 
 interface OdometerTrackerProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
@@ -171,13 +171,8 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white shadow-sm">
-        <button onClick={onBack} className="text-gray-500 hover:text-gray-800 flex items-center font-medium">
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
-          Dashboard
-        </button>
+      <div className="p-4 border-b border-gray-200 flex items-center justify-center bg-white shadow-sm">
         <h1 className="text-xl font-bold text-gray-900">Odometer & Fuel Tracking</h1>
-        <div className="w-20"></div>
       </div>
 
       {/* Content */}

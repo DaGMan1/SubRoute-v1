@@ -361,6 +361,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     window.open(url, '_blank');
   };
 
+  const startWazeNavigation = () => {
+    if (stops.length === 0) return;
+
+    // For Waze, we'll navigate to the first stop
+    // Waze doesn't support multi-stop routes via URL, so we open to the first destination
+    // and the user can add additional stops in Waze if needed
+    const firstStop = stops[0];
+
+    // Waze URL scheme: waze://?ll=latitude,longitude&navigate=yes
+    const wazeUrl = `https://waze.com/ul?ll=${firstStop.location.lat}%2C${firstStop.location.lng}&navigate=yes&zoom=17`;
+
+    window.open(wazeUrl, '_blank');
+  };
+
   const saveDepotAddress = (address: string, location: google.maps.LatLngLiteral) => {
     const depot: Stop = {
       id: 'depot',
@@ -725,17 +739,28 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
               </div>
             )}
 
-            {/* Start Navigation Button */}
+            {/* Navigation Buttons */}
             {stops.length >= 1 && (
-              <button
-                onClick={startNavigation}
-                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm flex items-center justify-center space-x-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
-                </svg>
-                <span>Start Navigation</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={startNavigation}
+                  className="px-3 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-xs flex items-center justify-center space-x-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                  </svg>
+                  <span>Google Maps</span>
+                </button>
+                <button
+                  onClick={startWazeNavigation}
+                  className="px-3 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold text-xs flex items-center justify-center space-x-1"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+                  </svg>
+                  <span>Waze</span>
+                </button>
+              </div>
             )}
 
             <button

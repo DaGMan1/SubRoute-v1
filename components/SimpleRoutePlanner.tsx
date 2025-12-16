@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import type { TripLog } from '../types';
 
 interface SimpleRoutePlannerProps {
   onBack: () => void;
@@ -41,6 +42,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const depotSearchRef = useRef<HTMLInputElement>(null);
   const depotAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const [pendingStop, setPendingStop] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
+  const [routeStartTime, setRouteStartTime] = useState<number | null>(null);
 
   useEffect(() => {
     // Get user's current location
@@ -373,6 +375,69 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     const wazeUrl = `https://waze.com/ul?ll=${firstStop.location.lat}%2C${firstStop.location.lng}&navigate=yes&zoom=17`;
 
     window.open(wazeUrl, '_blank');
+  };
+
+  const startRoute = () => {
+    // Mark the start time when user begins navigation
+    setRouteStartTime(Date.now());
+  };
+
+  const completeRoute = () => {
+    if (stops.length === 0 || !routeDetails) {
+      alert('No route to complete');
+      return;
+    }
+
+    const endTime = Date.now();
+    const startTime = routeStartTime || endTime;
+
+    // Get vehicle info from localStorage
+    const savedVehicles = localStorage.getItem('subroute_vehicles');
+    let vehicleString = 'Unknown Vehicle';
+
+    if (savedVehicles) {
+      try {
+        const vehicles = JSON.parse(savedVehicles);
+        const defaultVehicle = vehicles.find((v: any) => v.isDefault);
+        if (defaultVehicle) {
+          vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
+        }
+      } catch (e) {
+        console.error('Failed to load vehicle info', e);
+      }
+    }
+
+    // Create trip log entry
+    const tripLog: TripLog = {
+      id: Date.now().toString(),
+      timestamp: endTime,
+      date: new Date(endTime).toISOString().split('T')[0],
+      startTime: new Date(startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+      endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+      origin: stops[0]?.address || 'Unknown',
+      destination: stops[stops.length - 1]?.address || 'Unknown',
+      distanceKm: parseFloat(routeDetails.distance.replace(' km', '')),
+      vehicleString,
+      durationMinutes: parseInt(routeDetails.duration.replace(' min', '')),
+    };
+
+    // Save to localStorage
+    try {
+      const existingLogs = localStorage.getItem('subroute_logs');
+      const logs: TripLog[] = existingLogs ? JSON.parse(existingLogs) : [];
+      logs.push(tripLog);
+      localStorage.setItem('subroute_logs', JSON.stringify(logs));
+
+      // Show success message
+      alert(`Trip logged successfully!\n\nDistance: ${routeDetails.distance}\nDuration: ${routeDetails.duration}\n\nView in Trip Logbook`);
+
+      // Clear the route
+      clearAll();
+      setRouteStartTime(null);
+    } catch (e) {
+      console.error('Failed to save trip log', e);
+      alert('Failed to save trip log');
+    }
   };
 
   const saveDepotAddress = (address: string, location: google.maps.LatLngLiteral) => {
@@ -741,25 +806,46 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
 
             {/* Navigation Buttons */}
             {stops.length >= 1 && (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={startNavigation}
-                  className="px-3 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-xs flex items-center justify-center space-x-1"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
-                  </svg>
-                  <span>Google Maps</span>
-                </button>
-                <button
-                  onClick={startWazeNavigation}
-                  className="px-3 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold text-xs flex items-center justify-center space-x-1"
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
-                  </svg>
-                  <span>Waze</span>
-                </button>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      startRoute();
+                      startNavigation();
+                    }}
+                    className="px-3 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-xs flex items-center justify-center space-x-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                    </svg>
+                    <span>Google Maps</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      startRoute();
+                      startWazeNavigation();
+                    }}
+                    className="px-3 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold text-xs flex items-center justify-center space-x-1"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+                    </svg>
+                    <span>Waze</span>
+                  </button>
+                </div>
+
+                {/* Complete Route Button */}
+                {routeStartTime && (
+                  <button
+                    onClick={completeRoute}
+                    className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm flex items-center justify-center space-x-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                    </svg>
+                    <span>Complete Route & Log Trip</span>
+                  </button>
+                )}
               </div>
             )}
 

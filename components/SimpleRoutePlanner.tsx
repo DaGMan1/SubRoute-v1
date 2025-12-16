@@ -255,19 +255,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       return;
     }
 
-    if (stops.length === 1) {
-      // Just one stop - center map on it
-      if (googleMapRef.current) {
-        googleMapRef.current.setCenter(stops[0].location);
-        googleMapRef.current.setZoom(15);
-      }
-      return;
-    }
-
-    // Calculate route with multiple stops
-    const origin = stops[0].location;
+    // Calculate route (works with 1 or more stops)
+    // If only 1 stop, route from current location to that stop
+    const origin = stops.length === 1 && currentLocation ? currentLocation : stops[0].location;
     const destination = stops[stops.length - 1].location;
-    const waypoints = stops.slice(1, -1).map((stop) => ({
+    const waypoints = stops.length === 1 ? [] : stops.slice(1, -1).map((stop) => ({
       location: stop.location,
       stopover: true,
     }));
@@ -308,7 +300,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
         setRouteDetails(null);
       }
     });
-  }, [stops]);
+  }, [stops, currentLocation]);
 
   const clearAll = () => {
     setStops([]);
@@ -347,10 +339,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   };
 
   const startNavigation = () => {
-    if (stops.length < 2) return;
+    if (stops.length === 0) return;
 
     // Open Google Maps with directions
-    const origin = `${stops[0].location.lat},${stops[0].location.lng}`;
+    // If only 1 stop, start from current location
+    const origin = stops.length === 1 && currentLocation
+      ? `${currentLocation.lat},${currentLocation.lng}`
+      : `${stops[0].location.lat},${stops[0].location.lng}`;
     const destination = `${stops[stops.length - 1].location.lat},${stops[stops.length - 1].location.lng}`;
 
     let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
@@ -731,7 +726,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             )}
 
             {/* Start Navigation Button */}
-            {stops.length >= 2 && (
+            {stops.length >= 1 && (
               <button
                 onClick={startNavigation}
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm flex items-center justify-center space-x-2"

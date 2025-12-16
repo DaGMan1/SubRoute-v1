@@ -208,45 +208,69 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   };
 
   // Optimize route order using nearest neighbor algorithm
-  const optimizeStops = (stopsToOptimize: Stop[]): Stop[] => {
+  const optimizeStops = (stopsToOptimize: Stop[], startLocation?: google.maps.LatLngLiteral): Stop[] => {
     if (stopsToOptimize.length <= 1) return stopsToOptimize;
 
     const optimized: Stop[] = [];
     const remaining = [...stopsToOptimize];
 
-    // Start with the first stop
-    optimized.push(remaining.shift()!);
+    // Use starting location if provided (like depot or current location)
+    let currentLoc = startLocation;
 
-    // Keep finding the nearest unvisited stop
     while (remaining.length > 0) {
-      const current = optimized[optimized.length - 1];
       let nearestIndex = 0;
       let nearestDistance = Infinity;
 
       remaining.forEach((stop, index) => {
-        const distance = calculateDistance(current.location, stop.location);
-        if (distance < nearestDistance) {
+        const distance = currentLoc
+          ? calculateDistance(currentLoc, stop.location)
+          : 0; // If no current location, just take first
+
+        if (distance < nearestDistance || !currentLoc) {
           nearestDistance = distance;
           nearestIndex = index;
         }
       });
 
-      optimized.push(remaining.splice(nearestIndex, 1)[0]);
+      const nextStop = remaining.splice(nearestIndex, 1)[0];
+      optimized.push(nextStop);
+      currentLoc = nextStop.location;
     }
 
     return optimized;
   };
 
   const groupPickupsFirst = () => {
+    // Separate stops by type
+    const depots = stops.filter((s) => s.type === 'depot');
     const pickups = stops.filter((s) => s.type === 'pickup');
     const deliveries = stops.filter((s) => s.type === 'delivery');
-    const depots = stops.filter((s) => s.type === 'depot' || !s.type);
+    const other = stops.filter((s) => !s.type);
 
-    // Optimize each group separately
-    const optimizedPickups = optimizeStops(pickups);
-    const optimizedDeliveries = optimizeStops(deliveries);
+    // Get starting location (first depot or current location)
+    const startLoc = depots.length > 0 ? depots[0].location : currentLocation || undefined;
 
-    setStops([...depots, ...optimizedPickups, ...optimizedDeliveries]);
+    // Optimize pickups starting from depot/current location
+    const optimizedPickups = pickups.length > 0 ? optimizeStops(pickups, startLoc) : [];
+
+    // Optimize deliveries starting from last pickup (or depot if no pickups)
+    const deliveryStartLoc = optimizedPickups.length > 0
+      ? optimizedPickups[optimizedPickups.length - 1].location
+      : startLoc;
+    const optimizedDeliveries = deliveries.length > 0 ? optimizeStops(deliveries, deliveryStartLoc) : [];
+
+    // Rebuild stops array: depots first, then optimized pickups, then optimized deliveries, then other
+    const newStops = [...depots, ...optimizedPickups, ...optimizedDeliveries, ...other];
+
+    console.log('Optimized route:', {
+      original: stops.length,
+      new: newStops.length,
+      depots: depots.length,
+      pickups: optimizedPickups.length,
+      deliveries: optimizedDeliveries.length
+    });
+
+    setStops(newStops);
   };
 
   // Calculate and display route whenever stops change

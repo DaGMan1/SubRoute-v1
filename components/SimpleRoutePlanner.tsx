@@ -43,6 +43,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const depotAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const [pendingStop, setPendingStop] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
   const [routeStartTime, setRouteStartTime] = useState<number | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     // Get user's current location
@@ -490,6 +492,70 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     setShowTraffic(!showTraffic);
   };
 
+  const startVoiceInput = () => {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Please use Chrome or Safari.');
+      return;
+    }
+
+    if (isListening) {
+      // Stop listening
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    // Start listening
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-AU'; // Australian English
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+
+      // Set the search value
+      setSearchValue(transcript);
+      if (searchInputRef.current) {
+        searchInputRef.current.value = transcript;
+
+        // Trigger Google Places autocomplete search
+        const inputEvent = new Event('input', { bubbles: true });
+        searchInputRef.current.dispatchEvent(inputEvent);
+
+        // Focus the input to show autocomplete suggestions
+        searchInputRef.current.focus();
+      }
+
+      setIsListening(false);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setIsListening(false);
+
+      if (event.error === 'not-allowed') {
+        alert('Microphone access denied. Please allow microphone access in your browser settings.');
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
   // Initialize depot autocomplete when modal opens
   useEffect(() => {
     if (showDepotModal && depotSearchRef.current && !depotAutocompleteRef.current && window.google) {
@@ -538,11 +604,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             <input
               ref={searchInputRef}
               type="text"
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="block w-full pl-10 pr-12 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               placeholder="Search address..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
             />
+            <button
+              onClick={startVoiceInput}
+              className={`absolute inset-y-0 right-0 pr-3 flex items-center ${
+                isListening ? 'text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600'
+              }`}
+              title={isListening ? 'Listening...' : 'Voice input'}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+              </svg>
+            </button>
           </div>
 
           {/* Add Current Location Button */}

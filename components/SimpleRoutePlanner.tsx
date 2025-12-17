@@ -647,27 +647,27 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
 
           {/* Search Box */}
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
               </svg>
             </div>
             <input
               ref={searchInputRef}
               type="text"
-              className="block w-full pl-10 pr-12 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="block w-full pl-12 pr-14 py-3 md:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base md:text-sm"
               placeholder="Search address..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
             />
             <button
               onClick={startVoiceInput}
-              className={`absolute inset-y-0 right-0 pr-3 flex items-center ${
-                isListening ? 'text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600'
+              className={`absolute inset-y-0 right-0 pr-3 flex items-center w-12 justify-center ${
+                isListening ? 'text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600 active:text-blue-700'
               }`}
               title={isListening ? 'Listening...' : 'Voice input'}
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-7 w-7 md:h-5 md:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
               </svg>
             </button>

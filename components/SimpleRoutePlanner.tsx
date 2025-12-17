@@ -371,14 +371,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const startNavigation = () => {
     if (stops.length === 0) return;
 
-    // Open Google Maps with directions
+    // Open Google Maps with directions and start navigation immediately
     // If only 1 stop, start from current location
     const origin = stops.length === 1 && currentLocation
       ? `${currentLocation.lat},${currentLocation.lng}`
       : `${stops[0].location.lat},${stops[0].location.lng}`;
     const destination = `${stops[stops.length - 1].location.lat},${stops[stops.length - 1].location.lng}`;
 
-    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving&dir_action=navigate`;
 
     if (stops.length > 2) {
       const waypoints = stops
@@ -892,9 +892,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
             {(() => {
               const pickupCount = stops.filter(s => s.type === 'pickup').length;
               const deliveryCount = stops.filter(s => s.type === 'delivery').length;
-              const hasMultipleTypes = pickupCount > 0 && deliveryCount > 0;
+              const hasMultipleStops = stops.length > 2; // Show optimize if more than 2 stops
 
-              return (hasMultipleTypes || pickupCount > 0 || deliveryCount > 0) && (
+              return (
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-3">
                     {pickupCount > 0 && (
@@ -913,8 +913,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
                         <span>{deliveryCount} Deliver{deliveryCount !== 1 ? 'y' : 'ies'}</span>
                       </span>
                     )}
+                    {pickupCount === 0 && deliveryCount === 0 && (
+                      <span className="text-gray-500 font-medium">{stops.length} Stop{stops.length !== 1 ? 's' : ''}</span>
+                    )}
                   </div>
-                  {hasMultipleTypes && (
+                  {hasMultipleStops && (
                     <button
                       onClick={groupPickupsFirst}
                       className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center space-x-1"

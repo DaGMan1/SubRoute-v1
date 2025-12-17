@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { TripLog } from '../types';
+import type { TripLog, User, Vehicle } from '../types';
+import { saveUserPreferences, getUserPreferences, saveTripLog, getVehicles } from '../lib/firestore';
 
 interface SimpleRoutePlannerProps {
+  user: User;
   onBack?: () => void;
 }
 
@@ -13,7 +15,7 @@ interface Stop {
   notes?: string;
 }
 
-export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }) => {
+export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, onBack }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
@@ -29,14 +31,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [routeDetails, setRouteDetails] = useState<{ distance: string; duration: string } | null>(null);
   const [showTraffic, setShowTraffic] = useState(false);
-  const [depotAddress, setDepotAddress] = useState<Stop | null>(() => {
-    try {
-      const saved = localStorage.getItem('subroute_depot');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [depotAddress, setDepotAddress] = useState<Stop | null>(null);
   const [showDepotModal, setShowDepotModal] = useState(false);
   const [depotSearchValue, setDepotSearchValue] = useState('');
   const depotSearchRef = useRef<HTMLInputElement>(null);
@@ -67,6 +62,21 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       setCurrentLocation({ lat: -27.4698, lng: 153.0251 });
     }
   }, []);
+
+  // Load depot address from Firestore
+  useEffect(() => {
+    const loadDepotAddress = async () => {
+      try {
+        const prefs = await getUserPreferences(user.id);
+        if (prefs.depotAddress) {
+          setDepotAddress(JSON.parse(prefs.depotAddress));
+        }
+      } catch (error) {
+        console.error('Error loading depot address:', error);
+      }
+    };
+    loadDepotAddress();
+  }, [user.id]);
 
   useEffect(() => {
     // Wait for Google Maps to load
@@ -426,7 +436,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     setRouteStartTime(Date.now());
   };
 
-  const completeRoute = () => {
+  const completeRoute = async () => {
     if (stops.length === 0 || !routeDetails) {
       alert('No route to complete');
       return;
@@ -435,20 +445,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     const endTime = Date.now();
     const startTime = routeStartTime || endTime;
 
-    // Get vehicle info from localStorage
-    const savedVehicles = localStorage.getItem('subroute_vehicles');
+    // Get vehicle info from Firestore
     let vehicleString = 'Unknown Vehicle';
-
-    if (savedVehicles) {
-      try {
-        const vehicles = JSON.parse(savedVehicles);
-        const defaultVehicle = vehicles.find((v: any) => v.isDefault);
-        if (defaultVehicle) {
-          vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
-        }
-      } catch (e) {
-        console.error('Failed to load vehicle info', e);
+    try {
+      const vehicles = await getVehicles(user.id);
+      const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+      if (defaultVehicle) {
+        vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
       }
+    } catch (e) {
+      console.error('Failed to load vehicle info', e);
     }
 
     // Create trip log entry
@@ -465,12 +471,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       durationMinutes: parseInt(routeDetails.duration.replace(' min', '')),
     };
 
-    // Save to localStorage
+    // Save to Firestore
     try {
-      const existingLogs = localStorage.getItem('subroute_logs');
-      const logs: TripLog[] = existingLogs ? JSON.parse(existingLogs) : [];
-      logs.push(tripLog);
-      localStorage.setItem('subroute_logs', JSON.stringify(logs));
+      await saveTripLog(user.id, tripLog);
 
       // Show success message
       alert(`Trip logged successfully!\n\nDistance: ${routeDetails.distance}\nDuration: ${routeDetails.duration}\n\nView in Trip Info`);
@@ -484,7 +487,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     }
   };
 
-  const saveDepotAddress = (address: string, location: google.maps.LatLngLiteral) => {
+  const saveDepotAddress = async (address: string, location: google.maps.LatLngLiteral) => {
     const depot: Stop = {
       id: 'depot',
       address,
@@ -492,7 +495,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
       type: 'depot',
     };
     setDepotAddress(depot);
-    localStorage.setItem('subroute_depot', JSON.stringify(depot));
+    try {
+      await saveUserPreferences(user.id, { depotAddress: JSON.stringify(depot) });
+    } catch (error) {
+      console.error('Error saving depot address:', error);
+      alert('Failed to save depot address');
+    }
     setShowDepotModal(false);
     setDepotSearchValue('');
   };
@@ -518,9 +526,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ onBack }
     setStops([{ ...depotAddress, id: 'depot-start', type: 'depot' }, ...filtered, { ...depotAddress, id: 'depot-end', type: 'depot' }]);
   };
 
-  const clearDepot = () => {
+  const clearDepot = async () => {
     setDepotAddress(null);
-    localStorage.removeItem('subroute_depot');
+    try {
+      await saveUserPreferences(user.id, { depotAddress: undefined });
+    } catch (error) {
+      console.error('Error clearing depot address:', error);
+    }
   };
 
   const beginRouteFromDepot = () => {

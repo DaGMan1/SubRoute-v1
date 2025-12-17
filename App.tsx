@@ -1,53 +1,86 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from './lib/firebase';
 import type { User } from './types';
-import { Auth } from './components/AuthSandbox';
+import { Auth } from './components/Auth';
 import { Dashboard } from './components/Dashboard';
 import { SimpleRoutePlanner } from './components/SimpleRoutePlanner';
-import { VehicleManager } from './components/VehicleManagerSandbox';
-import { TripLogbook } from './components/TripLogbookSandbox';
+import { VehicleManager } from './components/VehicleManager';
+import { TripLogbook } from './components/TripLogbook';
 import { OdometerTracker } from './components/OdometerTracker';
 
 type AppView = 'dashboard' | 'planner' | 'vehicles' | 'logbook' | 'odometer';
 
 const App: React.FC = () => {
-  // Initialize state lazily to check localStorage *before* the first render.
-  // This prevents the "flash" of the login screen when you refresh the page.
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      const savedSession = localStorage.getItem('subroute_session');
-      if (savedSession) {
-        return JSON.parse(savedSession);
-      }
-    } catch (e) {
-      console.error('Failed to parse session:', e);
-      localStorage.removeItem('subroute_session');
-    }
-    return null;
-  });
-
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<AppView>('planner');
 
-  const handleLoginSuccess = (user: User) => {
-      try {
-        localStorage.setItem('subroute_session', JSON.stringify(user));
-        setCurrentUser(user);
-      } catch (e) {
-        console.error('Failed to save session:', e);
-        // Still set the user in memory so they can use the app
-        setCurrentUser(user);
+  // Listen to Firebase auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // User is signed in
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const userData = userDoc.data();
+
+          const user: User = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: userData?.name || firebaseUser.displayName || 'User'
+          };
+
+          setCurrentUser(user);
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+          // Fallback to basic user data
+          setCurrentUser({
+            id: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: firebaseUser.displayName || 'User'
+          });
+        }
+      } else {
+        // User is signed out
+        setCurrentUser(null);
       }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLoginSuccess = (user: User) => {
+      setCurrentUser(user);
   };
 
-  const handleLogout = () => {
-      localStorage.removeItem('subroute_session');
-      setCurrentUser(null);
-      setCurrentView('planner');
+  const handleLogout = async () => {
+      try {
+        await signOut(auth);
+        setCurrentUser(null);
+        setCurrentView('planner');
+      } catch (error) {
+        console.error('Error signing out:', error);
+      }
   };
 
   const handleNavigate = (view: AppView) => {
       setCurrentView(view);
   };
+
+  if (loading) {
+      return (
+          <div className="bg-brand-gray-50 min-h-screen flex items-center justify-center p-4">
+              <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue mx-auto"></div>
+                  <p className="mt-4 text-brand-gray-600">Loading...</p>
+              </div>
+          </div>
+      );
+  }
 
   if (!currentUser) {
       return (
@@ -175,13 +208,13 @@ const App: React.FC = () => {
           <Dashboard user={currentUser} onNavigate={handleNavigate} />
         )}
         {currentView === 'planner' && (
-          <SimpleRoutePlanner />
+          <SimpleRoutePlanner user={currentUser} />
         )}
         {currentView === 'vehicles' && (
           <VehicleManager user={currentUser} />
         )}
         {currentView === 'logbook' && (
-          <TripLogbook />
+          <TripLogbook user={currentUser} />
         )}
         {currentView === 'odometer' && (
           <OdometerTracker />

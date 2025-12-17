@@ -1,0 +1,150 @@
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  Timestamp,
+  onSnapshot
+} from 'firebase/firestore';
+import { db } from './firebase';
+import type { TripLog, Vehicle } from '../types';
+
+// ============================================
+// TRIP LOGS
+// ============================================
+
+export const saveTripLog = async (userId: string, tripLog: TripLog): Promise<void> => {
+  const tripRef = doc(db, 'users', userId, 'trips', tripLog.id);
+  await setDoc(tripRef, {
+    ...tripLog,
+    timestamp: Timestamp.fromMillis(tripLog.timestamp)
+  });
+};
+
+export const getTripLogs = async (userId: string): Promise<TripLog[]> => {
+  const tripsRef = collection(db, 'users', userId, 'trips');
+  const q = query(tripsRef, orderBy('timestamp', 'desc'));
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      ...data,
+      timestamp: data.timestamp.toMillis()
+    } as TripLog;
+  });
+};
+
+export const subscribeToTripLogs = (
+  userId: string,
+  callback: (trips: TripLog[]) => void
+): (() => void) => {
+  const tripsRef = collection(db, 'users', userId, 'trips');
+  const q = query(tripsRef, orderBy('timestamp', 'desc'));
+
+  return onSnapshot(q, (snapshot) => {
+    const trips = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        ...data,
+        timestamp: data.timestamp.toMillis()
+      } as TripLog;
+    });
+    callback(trips);
+  });
+};
+
+export const clearAllTripLogs = async (userId: string): Promise<void> => {
+  const tripsRef = collection(db, 'users', userId, 'trips');
+  const snapshot = await getDocs(tripsRef);
+
+  const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+  await Promise.all(deletePromises);
+};
+
+// ============================================
+// VEHICLES
+// ============================================
+
+export const saveVehicle = async (userId: string, vehicle: Vehicle): Promise<void> => {
+  const vehicleRef = doc(db, 'users', userId, 'vehicles', vehicle.id);
+  await setDoc(vehicleRef, vehicle);
+};
+
+export const getVehicles = async (userId: string): Promise<Vehicle[]> => {
+  const vehiclesRef = collection(db, 'users', userId, 'vehicles');
+  const snapshot = await getDocs(vehiclesRef);
+
+  return snapshot.docs.map(doc => doc.data() as Vehicle);
+};
+
+export const subscribeToVehicles = (
+  userId: string,
+  callback: (vehicles: Vehicle[]) => void
+): (() => void) => {
+  const vehiclesRef = collection(db, 'users', userId, 'vehicles');
+
+  return onSnapshot(vehiclesRef, (snapshot) => {
+    const vehicles = snapshot.docs.map(doc => doc.data() as Vehicle);
+    callback(vehicles);
+  });
+};
+
+export const deleteVehicle = async (userId: string, vehicleId: string): Promise<void> => {
+  const vehicleRef = doc(db, 'users', userId, 'vehicles', vehicleId);
+  await deleteDoc(vehicleRef);
+};
+
+export const getDefaultVehicle = async (userId: string): Promise<Vehicle | null> => {
+  const vehiclesRef = collection(db, 'users', userId, 'vehicles');
+  const q = query(vehiclesRef, where('isDefault', '==', true));
+  const snapshot = await getDocs(q);
+
+  if (snapshot.empty) return null;
+  return snapshot.docs[0].data() as Vehicle;
+};
+
+// ============================================
+// USER PREFERENCES
+// ============================================
+
+export interface UserPreferences {
+  depotAddress?: string;
+  currentOdometer?: number;
+}
+
+export const saveUserPreferences = async (userId: string, prefs: UserPreferences): Promise<void> => {
+  const prefsRef = doc(db, 'users', userId, 'preferences', 'main');
+  await setDoc(prefsRef, prefs, { merge: true });
+};
+
+export const getUserPreferences = async (userId: string): Promise<UserPreferences> => {
+  const prefsRef = doc(db, 'users', userId, 'preferences', 'main');
+  const snapshot = await getDoc(prefsRef);
+
+  if (!snapshot.exists()) {
+    return {};
+  }
+
+  return snapshot.data() as UserPreferences;
+};
+
+export const subscribeToUserPreferences = (
+  userId: string,
+  callback: (prefs: UserPreferences) => void
+): (() => void) => {
+  const prefsRef = doc(db, 'users', userId, 'preferences', 'main');
+
+  return onSnapshot(prefsRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.data() as UserPreferences);
+    } else {
+      callback({});
+    }
+  });
+};

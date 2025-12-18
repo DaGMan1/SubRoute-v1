@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { TripLog, User, Vehicle } from '../types';
-import { saveUserPreferences, getUserPreferences, saveTripLog, getVehicles } from '../lib/firestore';
+import {
+  saveUserPreferences,
+  getUserPreferences,
+  saveTripLog,
+  getVehicles,
+  saveAddressToHistory,
+  getAddressHistory,
+  saveFavoriteAddress,
+  getFavoriteAddresses,
+  deleteFavoriteAddress,
+  subscribeToFavoriteAddresses,
+  type SavedAddress,
+  type FavoriteAddress
+} from '../lib/firestore';
 
 interface SimpleRoutePlannerProps {
   user: User;
@@ -41,6 +54,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const [routeBegunFromDepot, setRouteBegunFromDepot] = useState(false);
+  const [addressHistory, setAddressHistory] = useState<SavedAddress[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteAddress[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showFavoriteModal, setShowFavoriteModal] = useState(false);
+  const [favoriteToSave, setFavoriteToSave] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
+  const [favoriteName, setFavoriteName] = useState('');
 
   useEffect(() => {
     // Get user's current location
@@ -76,6 +95,27 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       }
     };
     loadDepotAddress();
+  }, [user.id]);
+
+  // Load address history
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const history = await getAddressHistory(user.id, 50);
+        setAddressHistory(history);
+      } catch (error) {
+        console.error('Error loading address history:', error);
+      }
+    };
+    loadHistory();
+  }, [user.id]);
+
+  // Subscribe to favorites
+  useEffect(() => {
+    const unsubscribe = subscribeToFavoriteAddresses(user.id, (favs) => {
+      setFavorites(favs);
+    });
+    return () => unsubscribe();
   }, [user.id]);
 
   useEffect(() => {
@@ -116,7 +156,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         autocompleteRef.current.bindTo('bounds', googleMapRef.current);
 
         // Listen for place selection
-        autocompleteRef.current.addListener('place_changed', () => {
+        autocompleteRef.current.addListener('place_changed', async () => {
           const place = autocompleteRef.current?.getPlace();
 
           if (!place || !place.geometry || !place.geometry.location) {
@@ -128,9 +168,26 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             lng: place.geometry.location.lng(),
           };
 
+          const address = place.formatted_address || place.name || 'Unknown';
+
+          // Save to history
+          try {
+            const savedAddress: SavedAddress = {
+              id: `${location.lat}_${location.lng}`,
+              address,
+              location,
+            };
+            await saveAddressToHistory(user.id, savedAddress);
+            // Reload history
+            const history = await getAddressHistory(user.id, 50);
+            setAddressHistory(history);
+          } catch (error) {
+            console.error('Error saving address to history:', error);
+          }
+
           // Set as pending stop - user will choose pickup or delivery
           setPendingStop({
-            address: place.formatted_address || place.name || 'Unknown',
+            address,
             location,
           });
 
@@ -169,6 +226,55 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
     setStops((prev) => [...prev, newStop]);
     setPendingStop(null);
+  };
+
+  const addFromHistory = (historyItem: SavedAddress, type: 'pickup' | 'delivery') => {
+    addStop(historyItem.address, historyItem.location, type);
+    setShowHistory(false);
+  };
+
+  const addFromFavorite = (favorite: FavoriteAddress, type: 'pickup' | 'delivery') => {
+    addStop(favorite.address, favorite.location, type);
+  };
+
+  const openSaveFavoriteModal = (address: string, location: google.maps.LatLngLiteral) => {
+    setFavoriteToSave({ address, location });
+    setFavoriteName('');
+    setShowFavoriteModal(true);
+  };
+
+  const saveFavorite = async () => {
+    if (!favoriteToSave || !favoriteName.trim()) {
+      alert('Please enter a name for this favorite');
+      return;
+    }
+
+    try {
+      const favorite: FavoriteAddress = {
+        id: `${favoriteToSave.location.lat}_${favoriteToSave.location.lng}`,
+        address: favoriteToSave.address,
+        location: favoriteToSave.location,
+        name: favoriteName.trim(),
+        createdAt: Date.now(),
+      };
+      await saveFavoriteAddress(user.id, favorite);
+      setShowFavoriteModal(false);
+      setFavoriteToSave(null);
+      setFavoriteName('');
+    } catch (error) {
+      console.error('Error saving favorite:', error);
+      alert('Failed to save favorite');
+    }
+  };
+
+  const deleteFavorite = async (favoriteId: string) => {
+    if (!confirm('Remove this favorite?')) return;
+    try {
+      await deleteFavoriteAddress(user.id, favoriteId);
+    } catch (error) {
+      console.error('Error deleting favorite:', error);
+      alert('Failed to delete favorite');
+    }
   };
 
   const removeStop = (id: string) => {
@@ -671,6 +777,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               placeholder="Search address..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
+              onFocus={() => setShowHistory(true)}
+              onBlur={() => setTimeout(() => setShowHistory(false), 200)}
             />
             <button
               onClick={startVoiceInput}
@@ -683,6 +791,50 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
               </svg>
             </button>
+
+            {/* Address History Dropdown */}
+            {showHistory && addressHistory.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-600 uppercase">Recent Addresses</p>
+                </div>
+                {addressHistory.slice(0, 10).map((item) => (
+                  <div
+                    key={item.id}
+                    className="border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition-colors"
+                  >
+                    <div className="px-3 py-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm text-gray-900 truncate flex-1">{item.address}</p>
+                        <button
+                          onClick={() => openSaveFavoriteModal(item.address, item.location)}
+                          className="ml-2 text-gray-400 hover:text-yellow-500 flex-shrink-0"
+                          title="Save as favorite"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => addFromHistory(item, 'pickup')}
+                          className="flex-1 px-2 py-1 bg-amber-600 text-white rounded text-xs font-medium hover:bg-amber-700"
+                        >
+                          Pickup
+                        </button>
+                        <button
+                          onClick={() => addFromHistory(item, 'delivery')}
+                          className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
+                        >
+                          Delivery
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Add Current Location Button */}
@@ -743,6 +895,58 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               >
                 Cancel
               </button>
+            </div>
+          )}
+
+          {/* Favorites Section */}
+          {favorites.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-gray-600 uppercase flex items-center space-x-1">
+                  <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                  </svg>
+                  <span>Favorites</span>
+                </span>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {favorites.map((fav) => (
+                  <div
+                    key={fav.id}
+                    className="bg-yellow-50 rounded-lg p-2 border border-yellow-200"
+                  >
+                    <div className="flex items-start justify-between mb-1">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-yellow-900 truncate">{fav.name}</p>
+                        <p className="text-xs text-yellow-700 truncate">{fav.address}</p>
+                      </div>
+                      <button
+                        onClick={() => deleteFavorite(fav.id)}
+                        className="ml-2 text-gray-400 hover:text-red-600 flex-shrink-0"
+                        title="Remove favorite"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => addFromFavorite(fav, 'pickup')}
+                        className="flex-1 px-2 py-1 bg-amber-600 text-white rounded text-xs font-medium hover:bg-amber-700"
+                      >
+                        Pickup
+                      </button>
+                      <button
+                        onClick={() => addFromFavorite(fav, 'delivery')}
+                        className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
+                      >
+                        Delivery
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -855,6 +1059,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2 mb-0.5">
                         <p className="text-sm font-medium text-gray-900 truncate flex-1">{stop.address}</p>
+                        {!isDepot && (
+                          <button
+                            onClick={() => openSaveFavoriteModal(stop.address, stop.location)}
+                            className="flex-shrink-0 text-gray-400 hover:text-yellow-500"
+                            title="Save as favorite"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                            </svg>
+                          </button>
+                        )}
                       </div>
                       {(isPickup || isDelivery) && (
                         <button
@@ -1071,6 +1286,81 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Favorite Modal */}
+      {showFavoriteModal && favoriteToSave && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                  <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                  </svg>
+                  <span>Save as Favorite</span>
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowFavoriteModal(false);
+                    setFavoriteToSave(null);
+                    setFavoriteName('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-2">Address:</p>
+                <p className="text-sm font-medium text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                  {favoriteToSave.address}
+                </p>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Give this favorite a name
+                </label>
+                <input
+                  type="text"
+                  className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                  placeholder="e.g., Depot, Client - Joe's Pizza"
+                  value={favoriteName}
+                  onChange={(e) => setFavoriteName(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      saveFavorite();
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowFavoriteModal(false);
+                    setFavoriteToSave(null);
+                    setFavoriteName('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveFavorite}
+                  className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 font-medium"
+                >
+                  Save Favorite
+                </button>
+              </div>
             </div>
           </div>
         </div>

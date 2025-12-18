@@ -148,3 +148,76 @@ export const subscribeToUserPreferences = (
     }
   });
 };
+
+// ============================================
+// ADDRESS HISTORY & FAVORITES
+// ============================================
+
+export interface SavedAddress {
+  id: string;
+  address: string;
+  location: {
+    lat: number;
+    lng: number;
+  };
+  lastUsed?: number;
+  useCount?: number;
+}
+
+export interface FavoriteAddress extends SavedAddress {
+  name: string; // Custom name like "Depot", "Client - Joe's Pizza"
+  createdAt: number;
+}
+
+export const saveAddressToHistory = async (userId: string, address: SavedAddress): Promise<void> => {
+  const historyRef = doc(db, 'users', userId, 'addressHistory', address.id);
+  await setDoc(historyRef, {
+    ...address,
+    lastUsed: Date.now(),
+    useCount: (await getDoc(historyRef)).exists()
+      ? ((await getDoc(historyRef)).data()?.useCount || 0) + 1
+      : 1
+  });
+};
+
+export const getAddressHistory = async (userId: string, limit: number = 50): Promise<SavedAddress[]> => {
+  const historyRef = collection(db, 'users', userId, 'addressHistory');
+  const q = query(historyRef, orderBy('lastUsed', 'desc'), where('lastUsed', '!=', null));
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.slice(0, limit).map(doc => doc.data() as SavedAddress);
+};
+
+export const saveFavoriteAddress = async (userId: string, favorite: FavoriteAddress): Promise<void> => {
+  const favRef = doc(db, 'users', userId, 'favorites', favorite.id);
+  await setDoc(favRef, {
+    ...favorite,
+    createdAt: favorite.createdAt || Date.now()
+  });
+};
+
+export const getFavoriteAddresses = async (userId: string): Promise<FavoriteAddress[]> => {
+  const favRef = collection(db, 'users', userId, 'favorites');
+  const q = query(favRef, orderBy('name', 'asc'));
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map(doc => doc.data() as FavoriteAddress);
+};
+
+export const deleteFavoriteAddress = async (userId: string, favoriteId: string): Promise<void> => {
+  const favRef = doc(db, 'users', userId, 'favorites', favoriteId);
+  await deleteDoc(favRef);
+};
+
+export const subscribeToFavoriteAddresses = (
+  userId: string,
+  callback: (favorites: FavoriteAddress[]) => void
+): (() => void) => {
+  const favRef = collection(db, 'users', userId, 'favorites');
+  const q = query(favRef, orderBy('name', 'asc'));
+
+  return onSnapshot(q, (snapshot) => {
+    const favorites = snapshot.docs.map(doc => doc.data() as FavoriteAddress);
+    callback(favorites);
+  });
+};

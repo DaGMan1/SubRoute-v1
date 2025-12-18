@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<AppView>('planner');
+  const [showMenu, setShowMenu] = useState(false);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -98,8 +99,6 @@ const App: React.FC = () => {
           </div>
       );
   }
-
-  const [showMenu, setShowMenu] = useState(false);
 
   const getViewTitle = () => {
     switch(currentView) {

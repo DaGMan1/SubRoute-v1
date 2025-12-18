@@ -3,15 +3,14 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 // Firebase configuration
-// IMPORTANT: Replace these with your actual Firebase project credentials
-// Get these from: Firebase Console > Project Settings > General > Your apps > Web app
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyAkTPhW5UOilg5YFsXEj0rY-e3cLTTN1xI",
+  authDomain: "subroute-eda91.firebaseapp.com",
+  projectId: "subroute-eda91",
+  storageBucket: "subroute-eda91.firebasestorage.app",
+  messagingSenderId: "894893534696",
+  appId: "1:894893534696:web:1701dfb220a69731dd085d",
+  measurementId: "G-D89SY486DW"
 };
 
 // Initialize Firebase

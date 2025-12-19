@@ -563,29 +563,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const startWazeNavigation = () => {
     if (stops.length === 0) return;
 
-    // Warn if multiple stops - Waze only supports single destination
-    if (stops.length > 1) {
-      const confirmed = confirm(
-        `⚠️ Waze Limitation\n\n` +
-        `Waze only supports single destinations via URL.\n\n` +
-        `This will navigate to the FIRST stop only:\n"${stops[0].address}"\n\n` +
-        `Remaining ${stops.length - 1} stop(s) will NOT be included.\n\n` +
-        `For multi-stop routes, use Google Maps instead.\n\n` +
-        `Continue with Waze to first stop?`
-      );
-
-      if (!confirmed) {
-        return; // User cancelled
-      }
-    }
-
-    // For Waze, we'll navigate to the first stop
-    // Waze doesn't support multi-stop routes via URL, so we open to the first destination
-    // and the user can add additional stops in Waze if needed
-    const firstStop = stops[0];
+    // Navigate to the LAST stop (final destination)
+    // Waze doesn't support multi-stop routes via URL
+    const lastStop = stops[stops.length - 1];
 
     // Waze URL scheme: waze://?ll=latitude,longitude&navigate=yes
-    const wazeUrl = `https://waze.com/ul?ll=${firstStop.location.lat}%2C${firstStop.location.lng}&navigate=yes&zoom=17`;
+    const wazeUrl = `https://waze.com/ul?ll=${lastStop.location.lat}%2C${lastStop.location.lng}&navigate=yes&zoom=17`;
 
     window.open(wazeUrl, '_blank');
   };

@@ -1,16 +1,27 @@
-
 import React, { useState, useEffect } from 'react';
-import type { Vehicle, FuelStop, ServiceReminder } from '../types';
+import type { User, Vehicle, FuelStop, ServiceReminder } from '../types';
+import {
+  getVehicles,
+  subscribeToFuelStops,
+  saveFuelStop,
+  deleteFuelStop,
+  subscribeToServiceReminders,
+  saveServiceReminder,
+  deleteServiceReminder,
+  updateVehicleOdometer
+} from '../lib/firestore';
 
 interface OdometerTrackerProps {
+  user: User;
   onBack?: () => void;
 }
 
-export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
+export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }) => {
   const [currentOdometer, setCurrentOdometer] = useState(0);
   const [fuelStops, setFuelStops] = useState<FuelStop[]>([]);
   const [serviceReminders, setServiceReminders] = useState<ServiceReminder[]>([]);
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // Fuel stop input
   const [inputOdometer, setInputOdometer] = useState('');
@@ -25,51 +36,50 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
   const [serviceDueOdometer, setServiceDueOdometer] = useState('');
   const [serviceDueDate, setServiceDueDate] = useState('');
 
+  // Load active vehicle from Firebase
   useEffect(() => {
-    // Load active vehicle
-    const vehicles = JSON.parse(localStorage.getItem('subroute_vehicles') || '[]');
-    const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault) || vehicles[0];
-    if (defaultVehicle) {
-      setActiveVehicle(defaultVehicle);
-    }
+    const loadVehicle = async () => {
+      try {
+        const vehicles = await getVehicles(user.id);
+        const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault) || vehicles[0];
+        if (defaultVehicle) {
+          setActiveVehicle(defaultVehicle);
+          setCurrentOdometer(defaultVehicle.currentOdometer || defaultVehicle.startOdometer);
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading vehicle:', error);
+        setLoading(false);
+      }
+    };
+    loadVehicle();
+  }, [user.id]);
 
-    // Load current odometer
-    const savedOdometer = localStorage.getItem('subroute_current_odometer');
-    if (savedOdometer) {
-      setCurrentOdometer(parseFloat(savedOdometer));
-    } else if (defaultVehicle) {
-      setCurrentOdometer(defaultVehicle.startOdometer);
-    }
-
-    // Load fuel stops
-    const savedFuelStops = localStorage.getItem('subroute_fuel_stops');
-    if (savedFuelStops) {
-      setFuelStops(JSON.parse(savedFuelStops));
-    }
-
-    // Load service reminders
-    const savedReminders = localStorage.getItem('subroute_service_reminders');
-    if (savedReminders) {
-      setServiceReminders(JSON.parse(savedReminders));
-    }
-  }, []);
-
-  // Auto-save
+  // Subscribe to fuel stops
   useEffect(() => {
-    localStorage.setItem('subroute_current_odometer', currentOdometer.toString());
-  }, [currentOdometer]);
+    if (!activeVehicle) return;
 
+    const unsubscribe = subscribeToFuelStops(user.id, activeVehicle.id, (stops) => {
+      setFuelStops(stops);
+    });
+
+    return () => unsubscribe();
+  }, [user.id, activeVehicle]);
+
+  // Subscribe to service reminders
   useEffect(() => {
-    localStorage.setItem('subroute_fuel_stops', JSON.stringify(fuelStops));
-  }, [fuelStops]);
+    if (!activeVehicle) return;
 
-  useEffect(() => {
-    localStorage.setItem('subroute_service_reminders', JSON.stringify(serviceReminders));
-  }, [serviceReminders]);
+    const unsubscribe = subscribeToServiceReminders(user.id, activeVehicle.id, (reminders) => {
+      setServiceReminders(reminders);
+    });
 
-  const handleAddFuelStop = (e: React.FormEvent) => {
+    return () => unsubscribe();
+  }, [user.id, activeVehicle]);
+
+  const handleAddFuelStop = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputOdometer) return;
+    if (!inputOdometer || !activeVehicle) return;
 
     const newFuelStop: FuelStop = {
       id: Date.now().toString(),
@@ -80,23 +90,30 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
       location: inputLocation || undefined
     };
 
-    setFuelStops(prev => [newFuelStop, ...prev]);
-    setCurrentOdometer(parseFloat(inputOdometer));
+    try {
+      await saveFuelStop(user.id, activeVehicle.id, newFuelStop);
+      const newOdometer = parseFloat(inputOdometer);
+      setCurrentOdometer(newOdometer);
+      await updateVehicleOdometer(user.id, activeVehicle.id, newOdometer);
 
-    // Reset form
-    setInputOdometer('');
-    setInputLiters('');
-    setInputCost('');
-    setInputLocation('');
+      // Reset form
+      setInputOdometer('');
+      setInputLiters('');
+      setInputCost('');
+      setInputLocation('');
+    } catch (error) {
+      console.error('Error saving fuel stop:', error);
+      alert('Failed to save fuel stop. Please try again.');
+    }
   };
 
-  const handleAddServiceReminder = (e: React.FormEvent) => {
+  const handleAddServiceReminder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!serviceDescription) return;
+    if (!serviceDescription || !activeVehicle) return;
 
     const newReminder: ServiceReminder = {
       id: Date.now().toString(),
-      vehicleId: activeVehicle?.id || 'default',
+      vehicleId: activeVehicle.id,
       type: serviceType,
       description: serviceDescription,
       dueOdometer: serviceDueOdometer ? parseFloat(serviceDueOdometer) : undefined,
@@ -104,27 +121,57 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
       isCompleted: false
     };
 
-    setServiceReminders(prev => [...prev, newReminder]);
+    try {
+      await saveServiceReminder(user.id, activeVehicle.id, newReminder);
 
-    // Reset form
-    setServiceDescription('');
-    setServiceDueOdometer('');
-    setServiceDueDate('');
-    setShowServiceForm(false);
+      // Reset form
+      setServiceDescription('');
+      setServiceDueOdometer('');
+      setServiceDueDate('');
+      setShowServiceForm(false);
+    } catch (error) {
+      console.error('Error saving service reminder:', error);
+      alert('Failed to save service reminder. Please try again.');
+    }
   };
 
-  const toggleReminderComplete = (id: string) => {
-    setServiceReminders(prev =>
-      prev.map(r => r.id === id ? { ...r, isCompleted: !r.isCompleted } : r)
-    );
+  const toggleReminderComplete = async (id: string) => {
+    if (!activeVehicle) return;
+
+    const reminder = serviceReminders.find(r => r.id === id);
+    if (!reminder) return;
+
+    try {
+      await saveServiceReminder(user.id, activeVehicle.id, {
+        ...reminder,
+        isCompleted: !reminder.isCompleted
+      });
+    } catch (error) {
+      console.error('Error updating reminder:', error);
+      alert('Failed to update reminder. Please try again.');
+    }
   };
 
-  const deleteReminder = (id: string) => {
-    setServiceReminders(prev => prev.filter(r => r.id !== id));
+  const handleDeleteReminder = async (id: string) => {
+    if (!activeVehicle) return;
+
+    try {
+      await deleteServiceReminder(user.id, activeVehicle.id, id);
+    } catch (error) {
+      console.error('Error deleting reminder:', error);
+      alert('Failed to delete reminder. Please try again.');
+    }
   };
 
-  const deleteFuelStop = (id: string) => {
-    setFuelStops(prev => prev.filter(f => f.id !== id));
+  const handleDeleteFuelStop = async (id: string) => {
+    if (!activeVehicle) return;
+
+    try {
+      await deleteFuelStop(user.id, activeVehicle.id, id);
+    } catch (error) {
+      console.error('Error deleting fuel stop:', error);
+      alert('Failed to delete fuel stop. Please try again.');
+    }
   };
 
   // Calculate fuel economy
@@ -167,6 +214,26 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
     if (r.dueDate && new Date(r.dueDate) <= new Date()) return true;
     return false;
   });
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue"></div>
+        <p className="mt-4 text-brand-gray-600">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!activeVehicle) {
+    return (
+      <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 items-center justify-center p-4">
+        <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
+        </svg>
+        <p className="text-gray-600 text-center">No vehicle found. Please add a vehicle first.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50">
@@ -323,7 +390,7 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
                       </div>
                     </div>
                     <button
-                      onClick={() => deleteFuelStop(stop.id)}
+                      onClick={() => handleDeleteFuelStop(stop.id)}
                       className="text-gray-400 hover:text-red-500 p-1"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
@@ -449,7 +516,7 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ onBack }) => {
                       </div>
                     </div>
                     <button
-                      onClick={() => deleteReminder(reminder.id)}
+                      onClick={() => handleDeleteReminder(reminder.id)}
                       className="text-gray-400 hover:text-red-500 p-1"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>

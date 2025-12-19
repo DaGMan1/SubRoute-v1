@@ -216,7 +216,7 @@ const App: React.FC = () => {
           <TripLogbook user={currentUser} />
         )}
         {currentView === 'odometer' && (
-          <OdometerTracker />
+          <OdometerTracker user={currentUser} />
         )}
       </div>
     </div>

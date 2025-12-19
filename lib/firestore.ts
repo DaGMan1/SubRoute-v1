@@ -12,7 +12,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { TripLog, Vehicle } from '../types';
+import type { TripLog, Vehicle, FuelStop, ServiceReminder } from '../types';
 
 // ============================================
 // TRIP LOGS
@@ -220,4 +220,92 @@ export const subscribeToFavoriteAddresses = (
     const favorites = snapshot.docs.map(doc => doc.data() as FavoriteAddress);
     callback(favorites);
   });
+};
+
+// ============================================
+// FUEL STOPS & ODOMETER
+// ============================================
+
+export const saveFuelStop = async (userId: string, vehicleId: string, fuelStop: FuelStop): Promise<void> => {
+  const fuelRef = doc(db, 'users', userId, 'vehicles', vehicleId, 'fuelStops', fuelStop.id);
+  await setDoc(fuelRef, {
+    ...fuelStop,
+    timestamp: Timestamp.fromMillis(fuelStop.timestamp)
+  });
+};
+
+export const getFuelStops = async (userId: string, vehicleId: string): Promise<FuelStop[]> => {
+  const fuelRef = collection(db, 'users', userId, 'vehicles', vehicleId, 'fuelStops');
+  const q = query(fuelRef, orderBy('timestamp', 'desc'));
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      ...data,
+      timestamp: data.timestamp.toMillis()
+    } as FuelStop;
+  });
+};
+
+export const subscribeToFuelStops = (
+  userId: string,
+  vehicleId: string,
+  callback: (fuelStops: FuelStop[]) => void
+): (() => void) => {
+  const fuelRef = collection(db, 'users', userId, 'vehicles', vehicleId, 'fuelStops');
+  const q = query(fuelRef, orderBy('timestamp', 'desc'));
+
+  return onSnapshot(q, (snapshot) => {
+    const fuelStops = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        ...data,
+        timestamp: data.timestamp.toMillis()
+      } as FuelStop;
+    });
+    callback(fuelStops);
+  });
+};
+
+export const deleteFuelStop = async (userId: string, vehicleId: string, fuelStopId: string): Promise<void> => {
+  const fuelRef = doc(db, 'users', userId, 'vehicles', vehicleId, 'fuelStops', fuelStopId);
+  await deleteDoc(fuelRef);
+};
+
+// Service Reminders
+export const saveServiceReminder = async (userId: string, vehicleId: string, reminder: ServiceReminder): Promise<void> => {
+  const reminderRef = doc(db, 'users', userId, 'vehicles', vehicleId, 'serviceReminders', reminder.id);
+  await setDoc(reminderRef, reminder);
+};
+
+export const getServiceReminders = async (userId: string, vehicleId: string): Promise<ServiceReminder[]> => {
+  const reminderRef = collection(db, 'users', userId, 'vehicles', vehicleId, 'serviceReminders');
+  const snapshot = await getDocs(reminderRef);
+
+  return snapshot.docs.map(doc => doc.data() as ServiceReminder);
+};
+
+export const subscribeToServiceReminders = (
+  userId: string,
+  vehicleId: string,
+  callback: (reminders: ServiceReminder[]) => void
+): (() => void) => {
+  const reminderRef = collection(db, 'users', userId, 'vehicles', vehicleId, 'serviceReminders');
+
+  return onSnapshot(reminderRef, (snapshot) => {
+    const reminders = snapshot.docs.map(doc => doc.data() as ServiceReminder);
+    callback(reminders);
+  });
+};
+
+export const deleteServiceReminder = async (userId: string, vehicleId: string, reminderId: string): Promise<void> => {
+  const reminderRef = doc(db, 'users', userId, 'vehicles', vehicleId, 'serviceReminders', reminderId);
+  await deleteDoc(reminderRef);
+};
+
+// Update vehicle's current odometer
+export const updateVehicleOdometer = async (userId: string, vehicleId: string, currentOdometer: number): Promise<void> => {
+  const vehicleRef = doc(db, 'users', userId, 'vehicles', vehicleId);
+  await setDoc(vehicleRef, { currentOdometer }, { merge: true });
 };

@@ -13,6 +13,7 @@ export interface Vehicle {
   plate: string;
   isDefault: boolean;
   startOdometer: number;
+  currentOdometer?: number; // Current odometer reading, auto-updates from trips
 }
 
 export interface TripLog {

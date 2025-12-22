@@ -120,42 +120,86 @@ SubRoute is a courier logistics platform for Australian drivers, featuring multi
 ---
 
 ## 🆕 NEW: Notion Integration (Added Dec 23)
-**Git Commit:** 361b5d1
+**Git Commits:** 361b5d1, [latest]
 
 ### What Was Added
 - **Notion MCP Server** - Configured in Claude Code settings
 - **Automated Sync Scripts**
   - `scripts/notion_sync.py` - Python script to fetch from Notion and generate markdown
   - `scripts/sync-roadmap.sh` - Bash wrapper for easy execution
-  - `docs/README-SYNC.md` - Complete documentation
+  - `docs/README-SYNC.md` - Complete documentation for roadmap sync
+  - `docs/BUG-TRACKING-GUIDE.md` - Complete guide for bug tracking workflow
   - `ROADMAP.md` - Auto-generated roadmap file
+  - `BUGS.md` - Auto-generated bug tracker file
 
-### How It Works
+### Roadmap Tracking
 1. Notion database stores all SubRoute tasks/features
 2. Claude Code (with MCP) can query the database
 3. Python script formats data into markdown
 4. ROADMAP.md stays in sync with Notion (single source of truth)
 5. Git history tracks roadmap changes over time
 
-### Configuration
-- **Integration Token:** Stored in Claude Code config (`~/Library/Application Support/Claude/claude_desktop_config.json`)
-- **Database ID:** `2c94ca3fb25f81568875fb80290c01a7`
-- **Database URL:** https://www.notion.so/SubRoute-Courier-Driver-Platform-2c94ca3fb25f81568875fb80290c01a7
+### 🐛 Bug Tracking System (NEW!)
+**The Game Changer for Field Work**
 
-### Usage
+#### How It Works:
+1. **While Driving** (10 seconds at a red light):
+   - Open Notion mobile app
+   - Add bug: Title + Severity
+   - Done! Back to driving
+
+2. **Back at Office** (afternoon):
+   - Ask Claude: "Read all bugs from Notion"
+   - Claude generates BUGS.md with organized list
+   - Ask Claude: "Fix all critical bugs"
+   - Claude fixes and deploys automatically
+
+3. **Automatic Updates**:
+   - Bug status updates in Notion
+   - Fix commits reference bug IDs
+   - BUGS.md stays current
+
+#### Bug Database Properties:
+- **Title** - What's broken
+- **Status** - Open, In Progress, Fixed (Pending Deploy), Resolved
+- **Severity** - Critical 🔴, High 🟠, Medium 🟡, Low 🟢
+- **Description** - What happened
+- **Steps to Reproduce** - How to recreate
+- **Fix Notes** - Claude fills this when fixed
+- **Fix Commit** - Git commit hash
+- **Reported Date** - When you found it
+
+#### Usage Examples:
 ```bash
-# Test with mock data
-./scripts/sync-roadmap.sh --test
+# Test bug tracker
+python3 scripts/notion_sync.py --test-bugs > BUGS.md
 
 # With Claude Code (after restart)
-# Just ask: "Update the roadmap from Notion"
+# "Read all bugs from Notion"
+# "Fix all critical bugs"
+# "Show me high priority issues"
 ```
 
+### Configuration
+- **Integration Token:** Stored in Claude Code config (`~/Library/Application Support/Claude/claude_desktop_config.json`)
+- **Roadmap Database ID:** `2c94ca3fb25f81568875fb80290c01a7`
+- **Bug Database ID:** To be created (see BUG-TRACKING-GUIDE.md)
+- **Database URL:** https://www.notion.so/SubRoute-Courier-Driver-Platform-2c94ca3fb25f81568875fb80290c01a7
+
 ### Benefits
-✅ Single source of truth in Notion
-✅ Always up-to-date documentation in repo
-✅ Track progress over time via git history
-✅ Teammates can see roadmap without Notion access
+✅ **Roadmap Tracking**
+  - Single source of truth in Notion
+  - Always up-to-date documentation in repo
+  - Track progress over time via git history
+  - Teammates can see roadmap without Notion access
+
+✅ **Bug Tracking** (NEW!)
+  - Report bugs in 10 seconds while driving
+  - Never forget issues (captured immediately)
+  - Organized by severity automatically
+  - Claude fixes bugs automatically in afternoon
+  - Full version control of all fixes
+  - Visual progress tracking (Open → Resolved)
 
 ---
 

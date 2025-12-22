@@ -1167,16 +1167,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
             {/* Navigation Buttons */}
             {stops.length >= 1 && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => {
                       startRoute();
                       startNavigation();
                     }}
-                    className="px-3 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-xs flex items-center justify-center space-x-1"
+                    className="px-4 py-4 md:py-5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-bold text-sm md:text-base flex flex-col items-center justify-center space-y-1 min-h-[80px] md:min-h-[70px] shadow-lg active:scale-95 transition-transform"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
                     </svg>
                     <span>Google Maps</span>
@@ -1186,9 +1186,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       startRoute();
                       startWazeNavigation();
                     }}
-                    className="px-3 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold text-xs flex items-center justify-center space-x-1"
+                    className="px-4 py-4 md:py-5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold text-sm md:text-base flex flex-col items-center justify-center space-y-1 min-h-[80px] md:min-h-[70px] shadow-lg active:scale-95 transition-transform"
                   >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
                     </svg>
                     <span>Waze</span>

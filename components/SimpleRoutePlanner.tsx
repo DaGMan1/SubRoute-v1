@@ -230,64 +230,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   };
 
   const addFromHistory = (historyItem: SavedAddress, type: 'pickup' | 'delivery') => {
-    // If delivery and no stops exist, create quick route from current location
-    if (type === 'delivery' && stops.length === 0 && currentLocation) {
-      // Reverse geocode current location to get address
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ location: currentLocation }, (results, status) => {
-        if (status === 'OK' && results && results[0]) {
-          const currentStop: Stop = {
-            id: 'current-origin',
-            address: results[0].formatted_address,
-            location: currentLocation,
-            type: 'pickup',
-          };
-          const destStop: Stop = {
-            id: Date.now().toString(),
-            address: historyItem.address,
-            location: historyItem.location,
-            type: 'delivery',
-          };
-          setStops([currentStop, destStop]);
-        } else {
-          // Fallback: just add as delivery stop
-          addStop(historyItem.address, historyItem.location, type);
-        }
-      });
-    } else {
-      addStop(historyItem.address, historyItem.location, type);
-    }
+    addStop(historyItem.address, historyItem.location, type);
     setShowHistory(false);
   };
 
   const addFromFavorite = (favorite: FavoriteAddress, type: 'pickup' | 'delivery') => {
-    // If delivery and no stops exist, create quick route from current location
-    if (type === 'delivery' && stops.length === 0 && currentLocation) {
-      // Reverse geocode current location to get address
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ location: currentLocation }, (results, status) => {
-        if (status === 'OK' && results && results[0]) {
-          const currentStop: Stop = {
-            id: 'current-origin',
-            address: results[0].formatted_address,
-            location: currentLocation,
-            type: 'pickup',
-          };
-          const destStop: Stop = {
-            id: Date.now().toString(),
-            address: favorite.address,
-            location: favorite.location,
-            type: 'delivery',
-          };
-          setStops([currentStop, destStop]);
-        } else {
-          // Fallback: just add as delivery stop
-          addStop(favorite.address, favorite.location, type);
-        }
-      });
-    } else {
-      addStop(favorite.address, favorite.location, type);
-    }
+    addStop(favorite.address, favorite.location, type);
   };
 
   const openSaveFavoriteModal = (address: string, location: google.maps.LatLngLiteral) => {
@@ -620,8 +568,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       // Show success message
       alert(`Trip logged successfully!\n\nDistance: ${routeDetails.distance}\nDuration: ${routeDetails.duration}\n\nView in Trip Info`);
 
-      // Clear the route
-      clearAll();
+      // Reset route start time but keep the route visible
       setRouteStartTime(null);
     } catch (e) {
       console.error('Failed to save trip log', e);
@@ -917,39 +864,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </button>
                 <button
                   onClick={() => {
-                    // If no stops exist, create quick route from current location
-                    if (stops.length === 0 && currentLocation) {
-                      const geocoder = new google.maps.Geocoder();
-                      geocoder.geocode({ location: currentLocation }, (results, status) => {
-                        if (status === 'OK' && results && results[0]) {
-                          const currentStop: Stop = {
-                            id: 'current-origin',
-                            address: results[0].formatted_address,
-                            location: currentLocation,
-                            type: 'pickup',
-                          };
-                          const destStop: Stop = {
-                            id: Date.now().toString(),
-                            address: pendingStop.address,
-                            location: pendingStop.location,
-                            type: 'delivery',
-                          };
-                          setStops([currentStop, destStop]);
-                          setPendingStop(null);
-                        } else {
-                          addStop(pendingStop.address, pendingStop.location, 'delivery');
-                        }
-                      });
-                    } else {
-                      addStop(pendingStop.address, pendingStop.location, 'delivery');
-                    }
+                    addStop(pendingStop.address, pendingStop.location, 'delivery');
+                    setPendingStop(null);
                   }}
                   className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-medium flex items-center justify-center space-x-1"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
                   </svg>
-                  <span>{stops.length === 0 ? 'Go Here' : 'Delivery'}</span>
+                  <span>Delivery</span>
                 </button>
               </div>
               <button

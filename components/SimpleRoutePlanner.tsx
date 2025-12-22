@@ -849,15 +849,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
           {/* Pickup/Delivery Choice Modal */}
           {pendingStop && (
-            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-xs font-semibold text-blue-900 mb-2 truncate">{pendingStop.address}</p>
-              <p className="text-xs text-blue-700 mb-2">Add this stop as:</p>
-              <div className="grid grid-cols-2 gap-2">
+            <div className="mt-2 p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
+              <p className="text-sm font-semibold text-blue-900 mb-2 truncate">{pendingStop.address}</p>
+              <p className="text-xs text-blue-700 mb-3">Add this stop as:</p>
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => addStop(pendingStop.address, pendingStop.location, 'pickup')}
-                  className="px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-xs font-medium flex items-center justify-center space-x-1"
+                  className="px-4 py-4 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold text-sm flex flex-col items-center justify-center space-y-1 min-h-[70px] shadow-lg active:scale-95 transition-transform"
                 >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
                   </svg>
                   <span>Pickup</span>
@@ -867,9 +867,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     addStop(pendingStop.address, pendingStop.location, 'delivery');
                     setPendingStop(null);
                   }}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-medium flex items-center justify-center space-x-1"
+                  className="px-4 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 font-bold text-sm flex flex-col items-center justify-center space-y-1 min-h-[70px] shadow-lg active:scale-95 transition-transform"
                 >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
                   </svg>
                   <span>Delivery</span>
@@ -877,7 +877,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </div>
               <button
                 onClick={() => setPendingStop(null)}
-                className="mt-2 w-full text-xs text-blue-600 hover:underline"
+                className="mt-3 w-full text-sm text-blue-600 hover:underline font-medium"
               >
                 Cancel
               </button>
@@ -959,14 +959,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     {/* Big "Begin Route from Depot" button */}
                     <button
                       onClick={beginRouteFromDepot}
-                      className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-bold flex items-center justify-center space-x-2 shadow-md"
+                      className="w-full px-6 py-5 bg-green-600 text-white rounded-xl hover:bg-green-700 text-base font-bold flex items-center justify-center space-x-3 shadow-lg active:scale-95 transition-transform min-h-[70px]"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
                       </svg>
                       <span>Begin Route from Depot</span>
                     </button>
-                    <p className="text-xs text-gray-500 text-center">
+                    <p className="text-xs text-gray-500 text-center mt-2">
                       Start your day - depot will be added as first stop
                     </p>
                   </>

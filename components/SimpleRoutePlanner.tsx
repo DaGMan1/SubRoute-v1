@@ -62,6 +62,41 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [favoriteName, setFavoriteName] = useState('');
   const [showMapOnMobile, setShowMapOnMobile] = useState(false);
 
+  // PERSIST ROUTE STATE - Load on mount
+  useEffect(() => {
+    try {
+      const savedRoute = localStorage.getItem(`subroute_active_route_${user.id}`);
+      if (savedRoute) {
+        const { stops: savedStops, routeDetails: savedDetails, routeStartTime: savedTime, depotStart } = JSON.parse(savedRoute);
+        if (savedStops && savedStops.length > 0) {
+          setStops(savedStops);
+          setRouteDetails(savedDetails || null);
+          setRouteStartTime(savedTime || null);
+          setRouteBegunFromDepot(depotStart || false);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading saved route:', error);
+    }
+  }, [user.id]);
+
+  // PERSIST ROUTE STATE - Save on change
+  useEffect(() => {
+    if (stops.length > 0 || routeDetails || routeStartTime) {
+      try {
+        const routeState = {
+          stops,
+          routeDetails,
+          routeStartTime,
+          depotStart: routeBegunFromDepot
+        };
+        localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
+      } catch (error) {
+        console.error('Error saving route:', error);
+      }
+    }
+  }, [stops, routeDetails, routeStartTime, routeBegunFromDepot, user.id]);
+
   useEffect(() => {
     // Get user's current location
     if (navigator.geolocation) {
@@ -118,6 +153,71 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     });
     return () => unsubscribe();
   }, [user.id]);
+
+  // AUTOMATIC TRIP LOGGING - Detect when user returns after navigation
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      // When user returns to the app
+      if (!document.hidden && routeStartTime && stops.length > 0 && routeDetails) {
+        const now = Date.now();
+        const elapsedMinutes = (now - routeStartTime) / (1000 * 60);
+
+        // If route has been running for at least 2 minutes, auto-log it
+        if (elapsedMinutes >= 2) {
+          console.log('Auto-logging trip after', Math.round(elapsedMinutes), 'minutes');
+
+          // Auto-complete the route
+          const endTime = now;
+
+          // Get vehicle info
+          let vehicleString = 'Unknown Vehicle';
+          try {
+            const vehicles = await getVehicles(user.id);
+            const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+            if (defaultVehicle) {
+              vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
+            }
+          } catch (e) {
+            console.error('Failed to load vehicle info', e);
+          }
+
+          // Create trip log
+          const tripLog: TripLog = {
+            id: Date.now().toString(),
+            timestamp: endTime,
+            date: new Date(endTime).toISOString().split('T')[0],
+            startTime: new Date(routeStartTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+            endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+            origin: stops[0]?.address || 'Unknown',
+            destination: stops[stops.length - 1]?.address || 'Unknown',
+            distanceKm: parseFloat(routeDetails.distance.replace(' km', '')),
+            vehicleString,
+            durationMinutes: parseInt(routeDetails.duration.replace(' min', '')),
+          };
+
+          // Save to Firestore
+          try {
+            await saveTripLog(user.id, tripLog);
+
+            // Reset route start time
+            setRouteStartTime(null);
+
+            // Show subtle notification (non-blocking)
+            console.log('Trip auto-logged:', tripLog);
+
+            // Optional: Show a toast notification instead of alert
+            // For now, just log silently
+          } catch (e) {
+            console.error('Failed to auto-save trip log', e);
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [routeStartTime, stops, routeDetails, user.id]);
+
 
   useEffect(() => {
     // Wait for Google Maps to load
@@ -453,6 +553,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setSearchValue('');
     setRouteDetails(null);
     setRouteBegunFromDepot(false);
+    // Clear persisted route state
+    try {
+      localStorage.removeItem(`subroute_active_route_${user.id}`);
+    } catch (error) {
+      console.error('Error clearing saved route:', error);
+    }
     if (searchInputRef.current) {
       searchInputRef.current.value = '';
     }
@@ -1006,18 +1112,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
           </div>
         </div>
 
-        {/* Stops List */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Stops List - COMPACT VERSION */}
+        <div className="flex-1 overflow-y-auto p-4 max-h-[40vh] md:max-h-none">
           {stops.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <svg className="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-6 text-gray-400">
+              <svg className="w-10 h-10 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
               </svg>
               <p className="text-sm">No stops added yet</p>
               <p className="text-xs mt-1">Search for addresses above</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {stops.map((stop, index) => {
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
@@ -1032,62 +1138,39 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     onDragStart={() => handleDragStart(index)}
                     onDragOver={(e) => handleDragOver(e, index)}
                     onDrop={(e) => handleDrop(e, index)}
-                    className={`flex items-start space-x-2 p-3 rounded-lg border hover:opacity-80 cursor-move ${bgColor}`}
+                    className={`flex items-center space-x-2 p-2 rounded-lg border hover:opacity-80 cursor-move ${bgColor}`}
                   >
-                    <div className="flex-shrink-0 flex items-center space-x-2">
-                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex-shrink-0 flex items-center space-x-1.5">
+                      <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
                       </svg>
-                      <div className={`w-7 h-7 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
+                      <div className={`w-6 h-6 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
                         {index + 1}
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-0.5">
-                        <p className="text-sm font-medium text-gray-900 truncate flex-1">{stop.address}</p>
-                        {!isDepot && (
-                          <button
-                            onClick={() => openSaveFavoriteModal(stop.address, stop.location)}
-                            className="flex-shrink-0 text-gray-400 hover:text-yellow-500"
-                            title="Save as favorite"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
-                            </svg>
-                          </button>
-                        )}
-                      </div>
+                      <p className="text-xs font-medium text-gray-900 truncate leading-tight">{stop.address}</p>
                       {(isPickup || isDelivery) && (
                         <button
                           onClick={() => toggleStopType(stop.id)}
-                          className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold ${
+                          className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold mt-0.5 ${
                             isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
                           }`}
                         >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {isPickup ? (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
-                            ) : (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-                            )}
-                          </svg>
                           <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
                         </button>
                       )}
                       {isDepot && (
-                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold bg-gray-600 text-white">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                          </svg>
+                        <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-600 text-white mt-0.5">
                           <span>DEPOT</span>
                         </span>
                       )}
                     </div>
                     <button
                       onClick={() => removeStop(stop.id)}
-                      className="flex-shrink-0 text-gray-400 hover:text-red-600"
+                      className="flex-shrink-0 text-gray-400 hover:text-red-600 p-1"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                       </svg>
                     </button>
@@ -1147,64 +1230,70 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
             {/* Route Details */}
             {routeDetails && (
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+              <div className={`rounded-lg p-3 border ${routeStartTime ? 'bg-green-50 border-green-300' : 'bg-blue-50 border-blue-200'}`}>
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex items-center space-x-2">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-4 h-4 ${routeStartTime ? 'text-green-600' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
                     </svg>
-                    <span className="font-semibold text-blue-900">{routeDetails.distance}</span>
+                    <span className={`font-semibold ${routeStartTime ? 'text-green-900' : 'text-blue-900'}`}>{routeDetails.distance}</span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-4 h-4 ${routeStartTime ? 'text-green-600' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
-                    <span className="font-semibold text-blue-900">{routeDetails.duration}</span>
+                    <span className={`font-semibold ${routeStartTime ? 'text-green-900' : 'text-blue-900'}`}>{routeDetails.duration}</span>
                   </div>
                 </div>
+                {routeStartTime && (
+                  <div className="mt-2 pt-2 border-t border-green-200 flex items-center justify-center space-x-2 text-xs text-green-700 font-medium">
+                    <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse"></div>
+                    <span>Tracking - Trip will auto-log when complete</span>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Navigation Buttons */}
+            {/* Navigation Buttons - COMPACT VERSION */}
             {stops.length >= 1 && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => {
                       startRoute();
                       startNavigation();
                     }}
-                    className="px-4 py-4 md:py-5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-bold text-sm md:text-base flex flex-col items-center justify-center space-y-1 min-h-[80px] md:min-h-[70px] shadow-lg active:scale-95 transition-transform"
+                    className="px-3 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
                   >
-                    <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
                     </svg>
-                    <span>Google Maps</span>
+                    <span>Google</span>
                   </button>
                   <button
                     onClick={() => {
                       startRoute();
                       startWazeNavigation();
                     }}
-                    className="px-4 py-4 md:py-5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold text-sm md:text-base flex flex-col items-center justify-center space-y-1 min-h-[80px] md:min-h-[70px] shadow-lg active:scale-95 transition-transform"
+                    className="px-3 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
                   >
-                    <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
                     </svg>
                     <span>Waze</span>
                   </button>
                 </div>
 
-                {/* Complete Route Button */}
+                {/* Complete Route Button - Optional, trip will auto-log */}
                 {routeStartTime && (
                   <button
                     onClick={completeRoute}
-                    className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm flex items-center justify-center space-x-2"
+                    className="w-full px-3 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
                     </svg>
-                    <span>Complete Route & Log Trip</span>
+                    <span>Log Now (Optional)</span>
                   </button>
                 )}
               </div>

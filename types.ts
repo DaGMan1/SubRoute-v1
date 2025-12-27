@@ -59,6 +59,7 @@ export interface FuelStop {
   liters?: number;
   costAUD?: number;
   location?: string;
+  tripId?: string; // Link to trip if logged during active trip
 }
 
 export interface ServiceReminder {

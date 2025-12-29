@@ -1222,18 +1222,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       <div className="grid grid-cols-3 gap-1 px-2">
                         <button
                           onClick={() => startNavigationToStop(stop, 'google')}
-                          className="px-2 py-1.5 bg-green-600 text-white rounded text-[10px] font-bold hover:bg-green-700 flex items-center justify-center space-x-1"
+                          className="px-3 py-2.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 flex items-center justify-center space-x-1 min-h-[44px]"
                         >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
                           </svg>
                           <span>Google</span>
                         </button>
                         <button
                           onClick={() => startNavigationToStop(stop, 'waze')}
-                          className="px-2 py-1.5 bg-blue-500 text-white rounded text-[10px] font-bold hover:bg-blue-600 flex items-center justify-center space-x-1"
+                          className="px-3 py-2.5 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 flex items-center justify-center space-x-1 min-h-[44px]"
                         >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
                           </svg>
                           <span>Waze</span>
@@ -1241,9 +1241,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                         {isActiveDestination && (
                           <button
                             onClick={() => manualCompleteStop(stop)}
-                            className="px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-bold hover:bg-purple-700 flex items-center justify-center space-x-1"
+                            className="px-3 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center justify-center space-x-1 min-h-[44px]"
                           >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                             </svg>
                             <span>Done</span>
@@ -1348,13 +1348,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={clearAll}
-                className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-xs"
+                className="px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm min-h-[44px]"
               >
                 Clear All
               </button>
               <button
                 onClick={() => setShowMapOnMobile(true)}
-                className="md:hidden px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-xs flex items-center justify-center space-x-1"
+                className="md:hidden px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm flex items-center justify-center space-x-1 min-h-[44px]"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>

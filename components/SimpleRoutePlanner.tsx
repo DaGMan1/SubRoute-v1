@@ -70,6 +70,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [fuelStopCost, setFuelStopCost] = useState('');
   const [fuelStopOdometer, setFuelStopOdometer] = useState('');
 
+  // Point-to-point trip tracking
+  const [activeTrip, setActiveTrip] = useState<{
+    origin: string;
+    originLocation: google.maps.LatLngLiteral;
+    destination: string;
+    destinationLocation: google.maps.LatLngLiteral;
+    startTime: number;
+    distanceTraveled: number;
+  } | null>(null);
+  const [completedStops, setCompletedStops] = useState<Set<string>>(new Set());
+  const gpsWatchId = useRef<number | null>(null);
+  const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
+
   // PERSIST ROUTE STATE - Load on mount
   useEffect(() => {
     try {
@@ -162,69 +175,58 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     return () => unsubscribe();
   }, [user.id]);
 
-  // AUTOMATIC TRIP LOGGING - Detect when user returns after navigation
+  // GPS-BASED ARRIVAL DETECTION - Monitor location for arrival at destination
   useEffect(() => {
-    const handleVisibilityChange = async () => {
-      // When user returns to the app
-      if (!document.hidden && routeStartTime && stops.length > 0 && routeDetails) {
-        const now = Date.now();
-        const elapsedMinutes = (now - routeStartTime) / (1000 * 60);
+    if (!activeTrip) {
+      // No active trip, stop GPS watching
+      if (gpsWatchId.current !== null) {
+        navigator.geolocation.clearWatch(gpsWatchId.current);
+        gpsWatchId.current = null;
+      }
+      return;
+    }
 
-        // If route has been running for at least 2 minutes, auto-log it
-        if (elapsedMinutes >= 2) {
-          console.log('Auto-logging trip after', Math.round(elapsedMinutes), 'minutes');
-
-          // Auto-complete the route
-          const endTime = now;
-
-          // Get vehicle info
-          let vehicleString = 'Unknown Vehicle';
-          try {
-            const vehicles = await getVehicles(user.id);
-            const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
-            if (defaultVehicle) {
-              vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
-            }
-          } catch (e) {
-            console.error('Failed to load vehicle info', e);
-          }
-
-          // Create trip log
-          const tripLog: TripLog = {
-            id: Date.now().toString(),
-            timestamp: endTime,
-            date: new Date(endTime).toISOString().split('T')[0],
-            startTime: new Date(routeStartTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
-            endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
-            origin: stops[0]?.address || 'Unknown',
-            destination: stops[stops.length - 1]?.address || 'Unknown',
-            distanceKm: parseFloat(routeDetails.distance.replace(' km', '')),
-            vehicleString,
-            durationMinutes: parseInt(routeDetails.duration.replace(' min', '')),
+    // Start watching GPS position
+    if (navigator.geolocation && gpsWatchId.current === null) {
+      gpsWatchId.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const currentPos = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
           };
 
-          // Save to Firestore
-          try {
-            await saveTripLog(user.id, tripLog);
-
-            // Reset route start time
-            setRouteStartTime(null);
-
-            // Show subtle notification (non-blocking)
-            console.log('Trip auto-logged:', tripLog);
-
-            // Optional: Show a toast notification instead of alert
-            // For now, just log silently
-          } catch (e) {
-            console.error('Failed to auto-save trip log', e);
+          // Calculate distance traveled if we have a previous position
+          if (lastGpsPosition.current) {
+            const distance = calculateDistance(lastGpsPosition.current, currentPos);
+            setActiveTrip(prev => prev ? { ...prev, distanceTraveled: prev.distanceTraveled + distance } : null);
           }
+          lastGpsPosition.current = currentPos;
+
+          // Check if we've arrived at destination (within 50 meters)
+          const distanceToDestination = calculateDistance(currentPos, activeTrip.destinationLocation);
+          if (distanceToDestination <= 0.05) { // 50 meters = 0.05 km
+            console.log('Arrived at destination! Auto-logging trip...');
+            logCompletedTrip();
+          }
+        },
+        (error) => {
+          console.error('GPS tracking error:', error);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 10000,
         }
+      );
+    }
+
+    return () => {
+      if (gpsWatchId.current !== null) {
+        navigator.geolocation.clearWatch(gpsWatchId.current);
+        gpsWatchId.current = null;
       }
     };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [routeStartTime, stops, routeDetails, user.id]);
+  }, [activeTrip]);
 
 
   useEffect(() => {
@@ -561,6 +563,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setSearchValue('');
     setRouteDetails(null);
     setRouteBegunFromDepot(false);
+    setActiveTrip(null);
+    setCompletedStops(new Set());
     // Clear persisted route state
     try {
       localStorage.removeItem(`subroute_active_route_${user.id}`);
@@ -576,6 +580,58 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     if (googleMapRef.current && currentLocation) {
       googleMapRef.current.setCenter(currentLocation);
       googleMapRef.current.setZoom(12);
+    }
+  };
+
+  // Log completed trip when arrival detected
+  const logCompletedTrip = async () => {
+    if (!activeTrip) return;
+
+    const endTime = Date.now();
+    const durationMinutes = Math.round((endTime - activeTrip.startTime) / (1000 * 60));
+
+    // Get vehicle info
+    let vehicleString = 'Unknown Vehicle';
+    try {
+      const vehicles = await getVehicles(user.id);
+      const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+      if (defaultVehicle) {
+        vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
+      }
+    } catch (e) {
+      console.error('Failed to load vehicle info', e);
+    }
+
+    // Create trip log with actual GPS distance
+    const tripLog: TripLog = {
+      id: Date.now().toString(),
+      timestamp: endTime,
+      date: new Date(endTime).toISOString().split('T')[0],
+      startTime: new Date(activeTrip.startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+      endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+      origin: activeTrip.origin,
+      destination: activeTrip.destination,
+      distanceKm: Math.round(activeTrip.distanceTraveled * 10) / 10, // Round to 1 decimal
+      vehicleString,
+      durationMinutes,
+    };
+
+    // Save to Firestore
+    try {
+      await saveTripLog(user.id, tripLog);
+      console.log('Trip logged successfully:', tripLog);
+
+      // Mark this stop as completed
+      const newCompletedStops = new Set(completedStops);
+      newCompletedStops.add(activeTrip.destination);
+      setCompletedStops(newCompletedStops);
+
+      // Clear active trip
+      setActiveTrip(null);
+      lastGpsPosition.current = null;
+    } catch (e) {
+      console.error('Failed to save trip log', e);
+      alert('Failed to save trip log');
     }
   };
 
@@ -599,95 +655,49 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setDraggedIndex(null);
   };
 
-  const startNavigation = () => {
-    if (stops.length === 0) return;
+  // Start navigation to a specific stop (point-to-point)
+  const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
+    if (!currentLocation && !activeTrip) return;
 
-    // Open Google Maps with directions and start navigation immediately
-    // If only 1 stop, start from current location
-    const origin = stops.length === 1 && currentLocation
-      ? `${currentLocation.lat},${currentLocation.lng}`
-      : `${stops[0].location.lat},${stops[0].location.lng}`;
-    const destination = `${stops[stops.length - 1].location.lat},${stops[stops.length - 1].location.lng}`;
+    // Determine origin: current location if first trip, or last destination if continuing
+    const origin = activeTrip
+      ? activeTrip.destinationLocation
+      : (currentLocation || stops[0]?.location);
 
-    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving&dir_action=navigate`;
+    const originAddress = activeTrip
+      ? activeTrip.destination
+      : (depotAddress?.address || 'Current Location');
 
-    if (stops.length > 2) {
-      const waypoints = stops
-        .slice(1, -1)
-        .map((stop) => `${stop.location.lat},${stop.location.lng}`)
-        .join('|');
-      url += `&waypoints=${waypoints}`;
+    if (!origin) return;
+
+    // Start tracking this trip
+    setActiveTrip({
+      origin: originAddress,
+      originLocation: origin,
+      destination: stop.address,
+      destinationLocation: stop.location,
+      startTime: Date.now(),
+      distanceTraveled: 0,
+    });
+    lastGpsPosition.current = origin;
+
+    // Open navigation app
+    if (navApp === 'google') {
+      const url = `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`;
+      window.open(url, '_blank');
+    } else {
+      const wazeUrl = `https://waze.com/ul?ll=${stop.location.lat}%2C${stop.location.lng}&navigate=yes&zoom=17`;
+      window.open(wazeUrl, '_blank');
     }
-
-    window.open(url, '_blank');
   };
 
-  const startWazeNavigation = () => {
-    if (stops.length === 0) return;
-
-    // Navigate to the LAST stop (final destination)
-    // Waze doesn't support multi-stop routes via URL
-    const lastStop = stops[stops.length - 1];
-
-    // Waze URL scheme: waze://?ll=latitude,longitude&navigate=yes
-    const wazeUrl = `https://waze.com/ul?ll=${lastStop.location.lat}%2C${lastStop.location.lng}&navigate=yes&zoom=17`;
-
-    window.open(wazeUrl, '_blank');
-  };
-
-  const startRoute = () => {
-    // Mark the start time when user begins navigation
-    setRouteStartTime(Date.now());
-  };
-
-  const completeRoute = async () => {
-    if (stops.length === 0 || !routeDetails) {
-      alert('No route to complete');
+  // Manual complete for when GPS isn't accurate
+  const manualCompleteStop = async (stop: Stop) => {
+    if (!activeTrip || activeTrip.destination !== stop.address) {
+      alert('No active trip to this destination');
       return;
     }
-
-    const endTime = Date.now();
-    const startTime = routeStartTime || endTime;
-
-    // Get vehicle info from Firestore
-    let vehicleString = 'Unknown Vehicle';
-    try {
-      const vehicles = await getVehicles(user.id);
-      const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
-      if (defaultVehicle) {
-        vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
-      }
-    } catch (e) {
-      console.error('Failed to load vehicle info', e);
-    }
-
-    // Create trip log entry
-    const tripLog: TripLog = {
-      id: Date.now().toString(),
-      timestamp: endTime,
-      date: new Date(endTime).toISOString().split('T')[0],
-      startTime: new Date(startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
-      endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
-      origin: stops[0]?.address || 'Unknown',
-      destination: stops[stops.length - 1]?.address || 'Unknown',
-      distanceKm: parseFloat(routeDetails.distance.replace(' km', '')),
-      vehicleString,
-      durationMinutes: parseInt(routeDetails.duration.replace(' min', '')),
-    };
-
-    // Save to Firestore
-    try {
-      await saveTripLog(user.id, tripLog);
-
-      // Show success message
-      alert(`Trip logged successfully!\n\nDistance: ${routeDetails.distance}\nDuration: ${routeDetails.duration}\n\nView in Trip Info`);
-
-      // Reset route start time but keep the route visible
-      setRouteStartTime(null);
-    } catch (e) {
-      console.error('Failed to save trip log', e);
-      alert('Failed to save trip log');
-    }
+    await logCompletedTrip();
   };
 
   const openFuelStopModal = async () => {
@@ -1121,75 +1131,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </div>
             </div>
           )}
-
-          {/* Depot Address Section */}
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            {depotAddress ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-600 uppercase">Depot Address</span>
-                  <button onClick={() => setShowDepotModal(true)} className="text-xs text-blue-600 hover:underline">
-                    Change
-                  </button>
-                </div>
-                <div className="bg-green-50 rounded-lg p-2 border border-green-200">
-                  <div className="flex items-start space-x-2">
-                    <svg className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                    </svg>
-                    <p className="text-xs text-green-900 flex-1">{depotAddress.address}</p>
-                  </div>
-                </div>
-                {!routeBegunFromDepot ? (
-                  <>
-                    {/* Big "Begin Route from Depot" button */}
-                    <button
-                      onClick={beginRouteFromDepot}
-                      className="w-full px-6 py-5 bg-green-600 text-white rounded-xl hover:bg-green-700 text-base font-bold flex items-center justify-center space-x-3 shadow-lg active:scale-95 transition-transform min-h-[70px]"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                      </svg>
-                      <span>Begin Route from Depot</span>
-                    </button>
-                    <p className="text-xs text-gray-500 text-center mt-2">
-                      Start your day - depot will be added as first stop
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    {/* Route started indicator */}
-                    <div className="bg-green-100 border border-green-300 rounded-lg p-2 mb-2">
-                      <div className="flex items-center space-x-2">
-                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <span className="text-xs font-semibold text-green-900">Route started from depot</span>
-                      </div>
-                    </div>
-
-                    {/* Original buttons for adding depot at end */}
-                    <button
-                      onClick={addDepotAsEnd}
-                      className="w-full px-2 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
-                    >
-                      Return to Depot (Add at End)
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowDepotModal(true)}
-                className="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-200"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                </svg>
-                <span>Set Depot Address</span>
-              </button>
-            )}
-          </div>
         </div>
 
         {/* Stops List - COMPACT VERSION */}
@@ -1208,52 +1149,108 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
                 const isDepot = stop.type === 'depot';
-                const bgColor = isPickup ? 'bg-amber-50 border-amber-200' : isDelivery ? 'bg-green-50 border-green-200' : isDepot ? 'bg-gray-50 border-gray-300' : 'bg-gray-50 border-gray-200';
-                const markerColor = isPickup ? 'bg-amber-600' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-600' : 'bg-blue-600';
+                const isCompleted = completedStops.has(stop.address);
+                const isActiveDestination = activeTrip?.destination === stop.address;
+                const bgColor = isCompleted ? 'bg-gray-100 border-gray-300 opacity-60' : isPickup ? 'bg-amber-50 border-amber-200' : isDelivery ? 'bg-green-50 border-green-200' : isDepot ? 'bg-gray-50 border-gray-300' : 'bg-gray-50 border-gray-200';
+                const markerColor = isCompleted ? 'bg-gray-400' : isPickup ? 'bg-amber-600' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-600' : 'bg-blue-600';
 
                 return (
-                  <div
-                    key={stop.id}
-                    draggable
-                    onDragStart={() => handleDragStart(index)}
-                    onDragOver={(e) => handleDragOver(e, index)}
-                    onDrop={(e) => handleDrop(e, index)}
-                    className={`flex items-center space-x-2 p-2 rounded-lg border hover:opacity-80 cursor-move ${bgColor}`}
-                  >
-                    <div className="flex-shrink-0 flex items-center space-x-1.5">
-                      <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
-                      </svg>
-                      <div className={`w-6 h-6 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
-                        {index + 1}
+                  <div key={stop.id} className="space-y-1">
+                    <div
+                      draggable={!isCompleted}
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className={`flex items-center space-x-2 p-2 rounded-lg border ${isCompleted ? '' : 'hover:opacity-80 cursor-move'} ${bgColor}`}
+                    >
+                      <div className="flex-shrink-0 flex items-center space-x-1.5">
+                        {isCompleted ? (
+                          <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                          </svg>
+                        ) : (
+                          <>
+                            <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
+                            </svg>
+                            <div className={`w-6 h-6 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
+                              {index + 1}
+                            </div>
+                          </>
+                        )}
                       </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-900 truncate leading-tight">{stop.address}</p>
-                      {(isPickup || isDelivery) && (
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-900 truncate leading-tight">{stop.address}</p>
+                        <div className="flex items-center space-x-1 mt-0.5">
+                          {(isPickup || isDelivery) && (
+                            <button
+                              onClick={() => toggleStopType(stop.id)}
+                              disabled={isCompleted}
+                              className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
+                              } ${isCompleted ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
+                            </button>
+                          )}
+                          {isDepot && (
+                            <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-600 text-white">
+                              <span>DEPOT</span>
+                            </span>
+                          )}
+                          {isActiveDestination && (
+                            <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white animate-pulse">
+                              <span>EN ROUTE</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {!isCompleted && (
                         <button
-                          onClick={() => toggleStopType(stop.id)}
-                          className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold mt-0.5 ${
-                            isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
-                          }`}
+                          onClick={() => removeStop(stop.id)}
+                          className="flex-shrink-0 text-gray-400 hover:text-red-600 p-1"
                         >
-                          <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                          </svg>
                         </button>
                       )}
-                      {isDepot && (
-                        <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-600 text-white mt-0.5">
-                          <span>DEPOT</span>
-                        </span>
-                      )}
                     </div>
-                    <button
-                      onClick={() => removeStop(stop.id)}
-                      className="flex-shrink-0 text-gray-400 hover:text-red-600 p-1"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                      </svg>
-                    </button>
+
+                    {/* Navigation buttons for each uncompleted stop */}
+                    {!isCompleted && (
+                      <div className="grid grid-cols-3 gap-1 px-2">
+                        <button
+                          onClick={() => startNavigationToStop(stop, 'google')}
+                          className="px-2 py-1.5 bg-green-600 text-white rounded text-[10px] font-bold hover:bg-green-700 flex items-center justify-center space-x-1"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                          </svg>
+                          <span>Google</span>
+                        </button>
+                        <button
+                          onClick={() => startNavigationToStop(stop, 'waze')}
+                          className="px-2 py-1.5 bg-blue-500 text-white rounded text-[10px] font-bold hover:bg-blue-600 flex items-center justify-center space-x-1"
+                        >
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+                          </svg>
+                          <span>Waze</span>
+                        </button>
+                        {isActiveDestination && (
+                          <button
+                            onClick={() => manualCompleteStop(stop)}
+                            className="px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-bold hover:bg-purple-700 flex items-center justify-center space-x-1"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span>Done</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1334,85 +1331,37 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </div>
             )}
 
-            {/* Navigation Buttons - COMPACT VERSION */}
-            {stops.length >= 1 && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => {
-                      startRoute();
-                      startNavigation();
-                    }}
-                    className="px-3 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
-                    </svg>
-                    <span>Google</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      startRoute();
-                      startWazeNavigation();
-                    }}
-                    className="px-3 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
-                    </svg>
-                    <span>Waze</span>
-                  </button>
-                </div>
-
-                {/* Complete Route Button - Optional, trip will auto-log */}
-                {routeStartTime && (
-                  <>
-                    <button
-                      onClick={completeRoute}
-                      className="w-full px-3 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-                      </svg>
-                      <span>Log Now (Optional)</span>
-                    </button>
-
-                    {/* Log Fuel Stop Button */}
-                    <button
-                      onClick={openFuelStopModal}
-                      className="w-full px-3 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-bold text-sm flex items-center justify-center space-x-2 min-h-[56px] shadow-md active:scale-95 transition-transform"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                      </svg>
-                      <span>Log Fuel Stop</span>
-                    </button>
-                  </>
-                )}
-              </div>
+            {/* Fuel Stop Button - Shows when trip is active */}
+            {activeTrip && (
+              <button
+                onClick={openFuelStopModal}
+                className="w-full px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium text-xs flex items-center justify-center space-x-2 mb-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+                <span>Log Fuel Stop</span>
+              </button>
             )}
 
-            <button
-              onClick={clearAll}
-              className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm"
-            >
-              Clear All Stops
-            </button>
-          </div>
-        )}
-
-        {/* Mobile View Map Button */}
-        {stops.length > 0 && (
-          <div className="md:hidden p-4 border-t border-gray-200 bg-white">
-            <button
-              onClick={() => setShowMapOnMobile(true)}
-              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm flex items-center justify-center space-x-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
-              </svg>
-              <span>View Map</span>
-            </button>
+            {/* Compact Action Buttons - Side by Side */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={clearAll}
+                className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-xs"
+              >
+                Clear All
+              </button>
+              <button
+                onClick={() => setShowMapOnMobile(true)}
+                className="md:hidden px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-xs flex items-center justify-center space-x-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                </svg>
+                <span>Map</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

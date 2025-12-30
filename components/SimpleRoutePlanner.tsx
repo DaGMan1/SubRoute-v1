@@ -82,6 +82,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [completedStops, setCompletedStops] = useState<Set<string>>(new Set());
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
+  const wakeLockRef = useRef<any>(null); // Wake Lock API to prevent screen sleep during tracking
 
   // PERSIST ROUTE STATE - Load on mount
   useEffect(() => {
@@ -188,13 +189,34 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   // GPS-BASED ARRIVAL DETECTION - Monitor location for arrival at destination
   useEffect(() => {
     if (!activeTrip) {
-      // No active trip, stop GPS watching
+      // No active trip, stop GPS watching and release wake lock
       if (gpsWatchId.current !== null) {
         navigator.geolocation.clearWatch(gpsWatchId.current);
         gpsWatchId.current = null;
       }
+      // Release wake lock
+      if (wakeLockRef.current !== null) {
+        wakeLockRef.current.release().then(() => {
+          console.log('[SubRoute] Wake lock released');
+          wakeLockRef.current = null;
+        }).catch((err: any) => {
+          console.error('[SubRoute] Wake lock release error:', err);
+        });
+      }
       return;
     }
+
+    // Request wake lock to keep screen on during trip tracking
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator && wakeLockRef.current === null) {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+          console.log('[SubRoute] Wake lock acquired - screen will stay on during tracking');
+        }
+      } catch (err) {
+        console.log('[SubRoute] Wake lock not supported or denied:', err);
+      }
+    };
 
     const startGPSTracking = () => {
       console.log('[SubRoute GPS] Starting GPS tracking for destination:', activeTrip.destination);
@@ -234,7 +256,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       }
     };
 
-    // Start GPS immediately
+    // Request wake lock and start GPS tracking
+    requestWakeLock();
     startGPSTracking();
 
     // Resume GPS tracking when page becomes visible again (user returns from navigation app)
@@ -244,6 +267,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         // Restart GPS if it was stopped
         if (gpsWatchId.current === null) {
           startGPSTracking();
+        }
+        // Reacquire wake lock if lost
+        if (wakeLockRef.current === null) {
+          requestWakeLock();
         }
       } else if (document.hidden) {
         console.log('[SubRoute] Page hidden (user switched apps)');
@@ -257,6 +284,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       if (gpsWatchId.current !== null) {
         navigator.geolocation.clearWatch(gpsWatchId.current);
         gpsWatchId.current = null;
+      }
+      // Release wake lock on cleanup
+      if (wakeLockRef.current !== null) {
+        wakeLockRef.current.release().then(() => {
+          console.log('[SubRoute] Wake lock released on cleanup');
+          wakeLockRef.current = null;
+        }).catch((err: any) => {
+          console.error('[SubRoute] Wake lock release error:', err);
+        });
       }
     };
   }, [activeTrip]);

@@ -88,12 +88,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     try {
       const savedRoute = localStorage.getItem(`subroute_active_route_${user.id}`);
       if (savedRoute) {
-        const { stops: savedStops, routeDetails: savedDetails, routeStartTime: savedTime, depotStart } = JSON.parse(savedRoute);
+        const { stops: savedStops, routeDetails: savedDetails, routeStartTime: savedTime, depotStart, activeTrip: savedActiveTrip, completedStops: savedCompleted } = JSON.parse(savedRoute);
         if (savedStops && savedStops.length > 0) {
           setStops(savedStops);
           setRouteDetails(savedDetails || null);
           setRouteStartTime(savedTime || null);
           setRouteBegunFromDepot(depotStart || false);
+          if (savedActiveTrip) {
+            setActiveTrip(savedActiveTrip);
+            lastGpsPosition.current = savedActiveTrip.originLocation;
+          }
+          if (savedCompleted) {
+            setCompletedStops(new Set(savedCompleted));
+          }
         }
       }
     } catch (error) {
@@ -103,20 +110,23 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // PERSIST ROUTE STATE - Save on change
   useEffect(() => {
-    if (stops.length > 0 || routeDetails || routeStartTime) {
+    if (stops.length > 0 || routeDetails || routeStartTime || activeTrip || completedStops.size > 0) {
       try {
         const routeState = {
           stops,
           routeDetails,
           routeStartTime,
-          depotStart: routeBegunFromDepot
+          depotStart: routeBegunFromDepot,
+          activeTrip,
+          completedStops: Array.from(completedStops)
         };
         localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
+        console.log('[SubRoute] Route state saved:', { activeTrip: activeTrip?.destination, completedCount: completedStops.size });
       } catch (error) {
         console.error('Error saving route:', error);
       }
     }
-  }, [stops, routeDetails, routeStartTime, routeBegunFromDepot, user.id]);
+  }, [stops, routeDetails, routeStartTime, routeBegunFromDepot, activeTrip, completedStops, user.id]);
 
   useEffect(() => {
     // Get user's current location
@@ -204,8 +214,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
           // Check if we've arrived at destination (within 50 meters)
           const distanceToDestination = calculateDistance(currentPos, activeTrip.destinationLocation);
+          console.log('[SubRoute GPS] Distance to destination:', (distanceToDestination * 1000).toFixed(0), 'meters');
           if (distanceToDestination <= 0.05) { // 50 meters = 0.05 km
-            console.log('Arrived at destination! Auto-logging trip...');
+            console.log('[SubRoute GPS] 🎯 Arrived at destination! Auto-logging trip...');
             logCompletedTrip();
           }
         },
@@ -585,10 +596,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // Log completed trip when arrival detected
   const logCompletedTrip = async () => {
-    if (!activeTrip) return;
+    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip);
+    if (!activeTrip) {
+      console.warn('[SubRoute] No active trip to log!');
+      return;
+    }
 
     const endTime = Date.now();
     const durationMinutes = Math.round((endTime - activeTrip.startTime) / (1000 * 60));
+    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, distance:', activeTrip.distanceTraveled, 'km');
 
     // Get vehicle info
     let vehicleString = 'Unknown Vehicle';
@@ -618,20 +634,24 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
     // Save to Firestore
     try {
+      console.log('[SubRoute] Saving trip log to Firestore:', tripLog);
       await saveTripLog(user.id, tripLog);
-      console.log('Trip logged successfully:', tripLog);
+      console.log('[SubRoute] ✅ Trip logged successfully to Firestore!', tripLog);
 
       // Mark this stop as completed
       const newCompletedStops = new Set(completedStops);
       newCompletedStops.add(activeTrip.destination);
       setCompletedStops(newCompletedStops);
+      console.log('[SubRoute] Stop marked as completed:', activeTrip.destination);
 
       // Clear active trip
       setActiveTrip(null);
       lastGpsPosition.current = null;
+      console.log('[SubRoute] Active trip cleared, ready for next trip');
     } catch (e) {
-      console.error('Failed to save trip log', e);
-      alert('Failed to save trip log');
+      console.error('[SubRoute] ❌ Failed to save trip log:', e);
+      const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+      alert('Failed to save trip log: ' + errorMsg);
     }
   };
 
@@ -657,7 +677,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // Start navigation to a specific stop (point-to-point)
   const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
-    if (!currentLocation && !activeTrip) return;
+    console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
+    if (!currentLocation && !activeTrip) {
+      console.warn('[SubRoute] No current location or active trip!');
+      return;
+    }
 
     // Determine origin: current location if first trip, or last destination if continuing
     const origin = activeTrip
@@ -668,17 +692,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       ? activeTrip.destination
       : (depotAddress?.address || 'Current Location');
 
-    if (!origin) return;
+    if (!origin) {
+      console.error('[SubRoute] No origin available!');
+      return;
+    }
 
     // Start tracking this trip
-    setActiveTrip({
+    const newTrip = {
       origin: originAddress,
       originLocation: origin,
       destination: stop.address,
       destinationLocation: stop.location,
       startTime: Date.now(),
       distanceTraveled: 0,
-    });
+    };
+    console.log('[SubRoute] 🚗 Starting trip tracking:', newTrip);
+    setActiveTrip(newTrip);
     lastGpsPosition.current = origin;
 
     // Open navigation app

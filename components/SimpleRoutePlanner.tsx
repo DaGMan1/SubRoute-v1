@@ -196,42 +196,64 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return;
     }
 
-    // Start watching GPS position
-    if (navigator.geolocation && gpsWatchId.current === null) {
-      gpsWatchId.current = navigator.geolocation.watchPosition(
-        (position) => {
-          const currentPos = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
+    const startGPSTracking = () => {
+      console.log('[SubRoute GPS] Starting GPS tracking for destination:', activeTrip.destination);
 
-          // Calculate distance traveled if we have a previous position
-          if (lastGpsPosition.current) {
-            const distance = calculateDistance(lastGpsPosition.current, currentPos);
-            setActiveTrip(prev => prev ? { ...prev, distanceTraveled: prev.distanceTraveled + distance } : null);
-          }
-          lastGpsPosition.current = currentPos;
+      if (navigator.geolocation && gpsWatchId.current === null) {
+        gpsWatchId.current = navigator.geolocation.watchPosition(
+          (position) => {
+            const currentPos = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+            };
 
-          // Check if we've arrived at destination (within 50 meters)
-          const distanceToDestination = calculateDistance(currentPos, activeTrip.destinationLocation);
-          console.log('[SubRoute GPS] Distance to destination:', (distanceToDestination * 1000).toFixed(0), 'meters');
-          if (distanceToDestination <= 0.05) { // 50 meters = 0.05 km
-            console.log('[SubRoute GPS] 🎯 Arrived at destination! Auto-logging trip...');
-            logCompletedTrip();
+            // Calculate distance traveled if we have a previous position
+            if (lastGpsPosition.current) {
+              const distance = calculateDistance(lastGpsPosition.current, currentPos);
+              setActiveTrip(prev => prev ? { ...prev, distanceTraveled: prev.distanceTraveled + distance } : null);
+            }
+            lastGpsPosition.current = currentPos;
+
+            // Check if we've arrived at destination (within 50 meters)
+            const distanceToDestination = calculateDistance(currentPos, activeTrip.destinationLocation);
+            console.log('[SubRoute GPS] Distance to destination:', (distanceToDestination * 1000).toFixed(0), 'meters');
+            if (distanceToDestination <= 0.05) { // 50 meters = 0.05 km
+              console.log('[SubRoute GPS] 🎯 Arrived at destination! Auto-logging trip...');
+              logCompletedTrip();
+            }
+          },
+          (error) => {
+            console.error('[SubRoute GPS] GPS tracking error:', error);
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 10000,
           }
-        },
-        (error) => {
-          console.error('GPS tracking error:', error);
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 5000,
-          timeout: 10000,
+        );
+      }
+    };
+
+    // Start GPS immediately
+    startGPSTracking();
+
+    // Resume GPS tracking when page becomes visible again (user returns from navigation app)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && activeTrip) {
+        console.log('[SubRoute] Page visible again, resuming GPS tracking...');
+        // Restart GPS if it was stopped
+        if (gpsWatchId.current === null) {
+          startGPSTracking();
         }
-      );
-    }
+      } else if (document.hidden) {
+        console.log('[SubRoute] Page hidden (user switched apps)');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (gpsWatchId.current !== null) {
         navigator.geolocation.clearWatch(gpsWatchId.current);
         gpsWatchId.current = null;

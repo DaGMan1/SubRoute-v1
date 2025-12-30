@@ -700,6 +700,38 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     await logCompletedTrip();
   };
 
+  // Navigate all stops at once using Google Maps multi-waypoint
+  const navigateAllStops = () => {
+    if (stops.length === 0) return;
+
+    // Get uncompleted stops only
+    const uncompletedStops = stops.filter(s => !completedStops.has(s.address));
+    if (uncompletedStops.length === 0) {
+      alert('All stops are already completed!');
+      return;
+    }
+
+    // Build Google Maps URL with waypoints
+    const origin = currentLocation || uncompletedStops[0].location;
+    const destination = uncompletedStops[uncompletedStops.length - 1].location;
+
+    // Middle stops become waypoints
+    const waypoints = uncompletedStops.slice(1, -1).map(s =>
+      `${s.location.lat},${s.location.lng}`
+    ).join('|');
+
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`;
+
+    if (waypoints) {
+      url += `&waypoints=${waypoints}`;
+    }
+
+    window.open(url, '_blank');
+
+    // Note: Can't track individual trips in multi-waypoint mode
+    alert('Note: Multi-stop navigation opened. You\'ll need to manually complete each stop for individual trip logging, or use individual navigation buttons for auto-logging.');
+  };
+
   const openFuelStopModal = async () => {
     // Get current location (use geocoding to get address)
     if (currentLocation) {
@@ -1182,13 +1214,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-gray-900 truncate leading-tight">{stop.address}</p>
                         <div className="flex items-center space-x-1 mt-0.5">
-                          {(isPickup || isDelivery) && (
+                          {isCompleted && (
+                            <span className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-green-600 text-white">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                              </svg>
+                              <span>TRIP LOGGED</span>
+                            </span>
+                          )}
+                          {!isCompleted && (isPickup || isDelivery) && (
                             <button
                               onClick={() => toggleStopType(stop.id)}
-                              disabled={isCompleted}
                               className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                 isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
-                              } ${isCompleted ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              }`}
                             >
                               <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
                             </button>
@@ -1198,7 +1237,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                               <span>DEPOT</span>
                             </span>
                           )}
-                          {isActiveDestination && (
+                          {isActiveDestination && !isCompleted && (
                             <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white animate-pulse">
                               <span>EN ROUTE</span>
                             </span>
@@ -1329,6 +1368,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Navigate All Stops Button - Shows when multiple uncompleted stops */}
+            {stops.filter(s => !completedStops.has(s.address)).length > 1 && !activeTrip && (
+              <button
+                onClick={navigateAllStops}
+                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold text-sm flex items-center justify-center space-x-2 mb-2 min-h-[50px]"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                </svg>
+                <span>Navigate All Stops (Google Maps)</span>
+              </button>
             )}
 
             {/* Fuel Stop Button - Shows when trip is active */}

@@ -76,12 +76,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     originLocation: google.maps.LatLngLiteral;
     destination: string;
     destinationLocation: google.maps.LatLngLiteral;
+    destinationStopId: string; // Track stop.id to mark as completed
     startTime: number;
     distanceTraveled: number;
   } | null>(null);
-  const [completedStops, setCompletedStops] = useState<Set<string>>(new Set());
+  const [completedStops, setCompletedStops] = useState<Set<string>>(new Set()); // Track by stop.id, not address
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
+  const lastDestinationAddress = useRef<string | null>(null); // Track last completed destination for origin address
   const wakeLockRef = useRef<any>(null); // Wake Lock API to prevent screen sleep during tracking
 
   // PERSIST ROUTE STATE - Load on mount
@@ -696,15 +698,21 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       await saveTripLog(user.id, tripLog);
       console.log('[SubRoute] ✅ Trip logged successfully to Firestore!', tripLog);
 
-      // Mark this stop as completed
+      // Mark this stop as completed by ID (not address, so same address can be visited multiple times)
       const newCompletedStops = new Set(completedStops);
-      newCompletedStops.add(activeTrip.destination);
+      newCompletedStops.add(activeTrip.destinationStopId);
       setCompletedStops(newCompletedStops);
-      console.log('[SubRoute] Stop marked as completed:', activeTrip.destination);
+      console.log('[SubRoute] Stop marked as completed:', activeTrip.destination, 'ID:', activeTrip.destinationStopId);
 
-      // Clear active trip
+      // CRITICAL FIX: Save the destination location and address as the starting point for next trip
+      // DO NOT clear lastGpsPosition - we need it for the next trip's origin!
+      lastGpsPosition.current = activeTrip.destinationLocation;
+      lastDestinationAddress.current = activeTrip.destination;
+      console.log('[SubRoute] Last GPS position updated to destination:', activeTrip.destinationLocation);
+      console.log('[SubRoute] Last destination address saved:', activeTrip.destination);
+
+      // Clear active trip (but keep lastGpsPosition and lastDestinationAddress for next trip origin)
       setActiveTrip(null);
-      lastGpsPosition.current = null;
       console.log('[SubRoute] Active trip cleared, ready for next trip');
     } catch (e) {
       console.error('[SubRoute] ❌ Failed to save trip log:', e);
@@ -734,20 +742,30 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   };
 
   // Start navigation to a specific stop (point-to-point)
-  const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
+  const startNavigationToStop = async (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
-    if (!currentLocation && !activeTrip) {
-      console.warn('[SubRoute] No current location or active trip!');
+
+    // CRITICAL FIX: If there's already an active trip, complete it first before starting new one
+    if (activeTrip) {
+      console.log('[SubRoute] ⚠️ Active trip already running to:', activeTrip.destination);
+      console.log('[SubRoute] Completing previous trip before starting new one...');
+      await logCompletedTrip();
+      // Wait a brief moment for state to update
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    if (!currentLocation && !lastGpsPosition.current) {
+      console.warn('[SubRoute] No current location available!');
+      alert('Unable to determine your current location. Please enable GPS and try again.');
       return;
     }
 
-    // Determine origin: current location if first trip, or last destination if continuing
-    const origin = activeTrip
-      ? activeTrip.destinationLocation
-      : (currentLocation || stops[0]?.location);
+    // Determine origin: use lastGpsPosition if available (from completed trip), otherwise current location
+    const origin = lastGpsPosition.current || currentLocation || stops[0]?.location;
 
-    const originAddress = activeTrip
-      ? activeTrip.destination
+    // For origin address: use actual last destination if available, otherwise depot or current location
+    const originAddress = lastDestinationAddress.current
+      ? lastDestinationAddress.current
       : (depotAddress?.address || 'Current Location');
 
     if (!origin) {
@@ -755,16 +773,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return;
     }
 
-    // Start tracking this trip
+    // Start tracking this NEW trip
     const newTrip = {
       origin: originAddress,
       originLocation: origin,
       destination: stop.address,
       destinationLocation: stop.location,
+      destinationStopId: stop.id, // Track stop ID for completion
       startTime: Date.now(),
       distanceTraveled: 0,
     };
-    console.log('[SubRoute] 🚗 Starting trip tracking:', newTrip);
+    console.log('[SubRoute] 🚗 Starting NEW trip tracking:', newTrip);
     setActiveTrip(newTrip);
     lastGpsPosition.current = origin;
 
@@ -780,7 +799,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // Manual complete for when GPS isn't accurate
   const manualCompleteStop = async (stop: Stop) => {
-    if (!activeTrip || activeTrip.destination !== stop.address) {
+    if (!activeTrip || activeTrip.destinationStopId !== stop.id) {
       alert('No active trip to this destination');
       return;
     }
@@ -791,8 +810,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const navigateAllStops = () => {
     if (stops.length === 0) return;
 
-    // Get uncompleted stops only
-    const uncompletedStops = stops.filter(s => !completedStops.has(s.address));
+    // Get uncompleted stops only (check by stop.id, not address)
+    const uncompletedStops = stops.filter(s => !completedStops.has(s.id));
     if (uncompletedStops.length === 0) {
       alert('All stops are already completed!');
       return;
@@ -1268,8 +1287,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
                 const isDepot = stop.type === 'depot';
-                const isCompleted = completedStops.has(stop.address);
-                const isActiveDestination = activeTrip?.destination === stop.address;
+                const isCompleted = completedStops.has(stop.id); // Check by ID, not address
+                const isActiveDestination = activeTrip?.destinationStopId === stop.id;
                 const bgColor = isCompleted ? 'bg-gray-100 border-gray-300 opacity-60' : isPickup ? 'bg-amber-50 border-amber-200' : isDelivery ? 'bg-green-50 border-green-200' : isDepot ? 'bg-gray-50 border-gray-300' : 'bg-gray-50 border-gray-200';
                 const markerColor = isCompleted ? 'bg-gray-400' : isPickup ? 'bg-amber-600' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-600' : 'bg-blue-600';
 
@@ -1458,7 +1477,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             )}
 
             {/* Navigate All Stops Button - Shows when multiple uncompleted stops */}
-            {stops.filter(s => !completedStops.has(s.address)).length > 1 && !activeTrip && (
+            {stops.filter(s => !completedStops.has(s.id)).length > 1 && !activeTrip && (
               <button
                 onClick={navigateAllStops}
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold text-sm flex items-center justify-center space-x-2 mb-2 min-h-[50px]"

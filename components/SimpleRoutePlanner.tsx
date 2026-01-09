@@ -85,6 +85,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
   const lastDestinationAddress = useRef<string | null>(null); // Track last completed destination for origin address
   const wakeLockRef = useRef<any>(null); // Wake Lock API to prevent screen sleep during tracking
+  const isLoggingTrip = useRef<boolean>(false); // MUTEX: Prevent duplicate trip logging
 
   // PERSIST ROUTE STATE - Load on mount
   useEffect(() => {
@@ -665,22 +666,33 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // Log completed trip when arrival detected
   const logCompletedTrip = async () => {
-    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip);
+    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isLogging:', isLoggingTrip.current);
+
+    // MUTEX CHECK: If already logging, skip to prevent duplicates
+    if (isLoggingTrip.current) {
+      console.warn('[SubRoute] ⚠️ Already logging a trip, skipping duplicate call');
+      return;
+    }
+
     if (!activeTrip) {
       console.warn('[SubRoute] No active trip to log!');
       return;
     }
 
-    // CRITICAL: Capture activeTrip data IMMEDIATELY and clear state to prevent duplicate logging
+    // SET MUTEX IMMEDIATELY - This is synchronous and prevents race conditions
+    isLoggingTrip.current = true;
+    console.log('[SubRoute] 🔒 Mutex locked - logging trip');
+
+    // Capture activeTrip data
     const tripToLog = { ...activeTrip };
     const endTime = Date.now();
     const durationMinutes = Math.round((endTime - tripToLog.startTime) / (1000 * 60));
 
     console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, distance:', tripToLog.distanceTraveled, 'km');
 
-    // Clear activeTrip IMMEDIATELY to prevent duplicate calls
+    // Clear activeTrip state
     setActiveTrip(null);
-    console.log('[SubRoute] Active trip cleared to prevent duplicates');
+    console.log('[SubRoute] Active trip state cleared');
 
     // Get vehicle info
     let vehicleString = 'Unknown Vehicle';
@@ -726,10 +738,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.log('[SubRoute] Last GPS position updated to destination:', tripToLog.destinationLocation);
       console.log('[SubRoute] Last destination address saved:', tripToLog.destination);
       console.log('[SubRoute] ✅ Trip logging complete, ready for next trip');
+
+      // RELEASE MUTEX after successful logging
+      isLoggingTrip.current = false;
+      console.log('[SubRoute] 🔓 Mutex released');
     } catch (e) {
       console.error('[SubRoute] ❌ Failed to save trip log:', e);
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';
       alert('Failed to save trip log: ' + errorMsg);
+
+      // RELEASE MUTEX even on error
+      isLoggingTrip.current = false;
+      console.log('[SubRoute] 🔓 Mutex released (after error)');
     }
   };
 

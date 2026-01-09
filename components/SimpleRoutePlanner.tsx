@@ -231,12 +231,21 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               lng: position.coords.longitude,
             };
 
-            // Calculate distance traveled if we have a previous position
-            if (lastGpsPosition.current) {
+            // Calculate distance traveled if we have a previous position AND active trip exists
+            if (lastGpsPosition.current && activeTrip) {
               const distance = calculateDistance(lastGpsPosition.current, currentPos);
-              setActiveTrip(prev => prev ? { ...prev, distanceTraveled: prev.distanceTraveled + distance } : null);
+              setActiveTrip(prev => {
+                if (!prev) return null; // Safety check
+                return { ...prev, distanceTraveled: prev.distanceTraveled + distance };
+              });
             }
             lastGpsPosition.current = currentPos;
+
+            // CRITICAL: Only check arrival if activeTrip still exists (not already logged)
+            if (!activeTrip) {
+              console.log('[SubRoute GPS] No active trip, skipping arrival check');
+              return;
+            }
 
             // Check if we've arrived at destination (within 50 meters)
             const distanceToDestination = calculateDistance(currentPos, activeTrip.destinationLocation);
@@ -662,9 +671,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return;
     }
 
+    // CRITICAL: Capture activeTrip data IMMEDIATELY and clear state to prevent duplicate logging
+    const tripToLog = { ...activeTrip };
     const endTime = Date.now();
-    const durationMinutes = Math.round((endTime - activeTrip.startTime) / (1000 * 60));
-    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, distance:', activeTrip.distanceTraveled, 'km');
+    const durationMinutes = Math.round((endTime - tripToLog.startTime) / (1000 * 60));
+
+    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, distance:', tripToLog.distanceTraveled, 'km');
+
+    // Clear activeTrip IMMEDIATELY to prevent duplicate calls
+    setActiveTrip(null);
+    console.log('[SubRoute] Active trip cleared to prevent duplicates');
 
     // Get vehicle info
     let vehicleString = 'Unknown Vehicle';
@@ -683,11 +699,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       id: Date.now().toString(),
       timestamp: endTime,
       date: new Date(endTime).toISOString().split('T')[0],
-      startTime: new Date(activeTrip.startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+      startTime: new Date(tripToLog.startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
-      origin: activeTrip.origin,
-      destination: activeTrip.destination,
-      distanceKm: Math.round(activeTrip.distanceTraveled * 10) / 10, // Round to 1 decimal
+      origin: tripToLog.origin,
+      destination: tripToLog.destination,
+      distanceKm: Math.round(tripToLog.distanceTraveled * 10) / 10, // Round to 1 decimal
       vehicleString,
       durationMinutes,
     };
@@ -700,20 +716,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       // Mark this stop as completed by ID (not address, so same address can be visited multiple times)
       const newCompletedStops = new Set(completedStops);
-      newCompletedStops.add(activeTrip.destinationStopId);
+      newCompletedStops.add(tripToLog.destinationStopId);
       setCompletedStops(newCompletedStops);
-      console.log('[SubRoute] Stop marked as completed:', activeTrip.destination, 'ID:', activeTrip.destinationStopId);
+      console.log('[SubRoute] Stop marked as completed:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
 
-      // CRITICAL FIX: Save the destination location and address as the starting point for next trip
-      // DO NOT clear lastGpsPosition - we need it for the next trip's origin!
-      lastGpsPosition.current = activeTrip.destinationLocation;
-      lastDestinationAddress.current = activeTrip.destination;
-      console.log('[SubRoute] Last GPS position updated to destination:', activeTrip.destinationLocation);
-      console.log('[SubRoute] Last destination address saved:', activeTrip.destination);
-
-      // Clear active trip (but keep lastGpsPosition and lastDestinationAddress for next trip origin)
-      setActiveTrip(null);
-      console.log('[SubRoute] Active trip cleared, ready for next trip');
+      // Save the destination location and address as the starting point for next trip
+      lastGpsPosition.current = tripToLog.destinationLocation;
+      lastDestinationAddress.current = tripToLog.destination;
+      console.log('[SubRoute] Last GPS position updated to destination:', tripToLog.destinationLocation);
+      console.log('[SubRoute] Last destination address saved:', tripToLog.destination);
+      console.log('[SubRoute] ✅ Trip logging complete, ready for next trip');
     } catch (e) {
       console.error('[SubRoute] ❌ Failed to save trip log:', e);
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';

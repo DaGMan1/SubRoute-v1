@@ -2,18 +2,21 @@
 
 **Purpose**: Master reference document for understanding application flow, data architecture, and development processes
 
-**Last Updated**: 2025-12-29
+**Last Updated**: 2026-01-09
 
 ---
 
 ## 1. APPLICATION ARCHITECTURE OVERVIEW
 
 ### Tech Stack
-- **Frontend**: React 19 + TypeScript + Vite
+- **Frontend Framework**: React 19.2.3
+- **Language**: TypeScript 5.5.3
+- **Build Tool**: Vite 7.3.0
 - **Styling**: Tailwind CSS (brand colors: blue #0052CC, gray palette)
-- **Maps**: Google Maps JavaScript API, Directions API, Places API
-- **Backend**: Firebase (Firestore + Authentication)
-- **Deployment**: Google Cloud Run (Docker + Nginx)
+- **Maps**: Google Maps JavaScript API v3.58+ (Directions, Places, Geocoding APIs)
+- **Backend/Database**: Firebase 12.7.0 (Firestore + Authentication)
+- **Deployment**: Vercel (auto-deploys from GitHub main branch)
+- **Version Control**: Git with SSH authentication (dedicated deploy key)
 
 ### Core Design Principles
 1. **Mobile-First**: Designed for courier drivers using phones while driving
@@ -489,31 +492,43 @@ Detailed explanation:
 
 ### Deployment Process
 
-**1. Development → Staging**
-```bash
-git checkout development
-git merge feature/branch-name
-git push origin development
-# Auto-deploys to staging (if configured)
-```
+**IMPORTANT**: SubRoute uses **Vercel** for automatic deployments, NOT Google Cloud Run.
 
-**2. Staging → Production**
+**Automatic Deployment (Production)**
 ```bash
-git checkout main
-git merge development
-git push origin main
-# Triggers Cloud Build → Cloud Run deployment
-```
-
-**3. Manual Deploy (if needed)**
-```bash
+# Any push to main branch triggers automatic Vercel deployment
 cd "/Users/garrymans/Documents/App Dev/SubRoute-github"
-npm run build
-gcloud run deploy subroute-app \
-  --source . \
-  --region australia-southeast1 \
-  --allow-unauthenticated
+git add .
+git commit -m "fix: description of changes"
+git push origin main
+# Vercel automatically builds and deploys within 1-2 minutes
 ```
+
+**SSH Authentication (Already Configured)**
+```bash
+# Repository uses dedicated SSH deploy key for authentication
+# Remote URL: git@github.com-subroute:DaGMan1/SubRoute-v1.git
+# SSH Key: ~/.ssh/subroute_deploy_key
+# SSH Config: Custom host "github.com-subroute" in ~/.ssh/config
+
+# This prevents conflicts with other GitHub projects (Alex, LHC, etc.)
+# The custom host alias ensures only this repo uses this specific SSH key
+```
+
+**Manual Build & Test Locally**
+```bash
+npm run build    # TypeScript compile + Vite build → dist/
+npm run preview  # Preview production build locally
+npm run dev      # Run development server on localhost:5173
+```
+
+**Vercel Configuration**
+- Config file: `vercel.json`
+- Production URL: [Check Vercel dashboard at vercel.com]
+- Auto-deploys: Enabled for main branch only
+- Build command: `npm run build`
+- Output directory: `dist`
+- Framework: Vite (auto-detected)
 
 ---
 
@@ -654,19 +669,21 @@ npm run dev              # Start dev server (port 5173)
 npm run build            # Build for production
 npm run preview          # Preview production build
 
-# Git
+# Git (with SSH configured for this repo)
+cd "/Users/garrymans/Documents/App Dev/SubRoute-github"
 git status               # Check current state
 git add .                # Stage all changes
-git commit -m "message"  # Commit with message
-git push origin main     # Push to production
+git commit -m "fix: message"  # Commit with message
+git push origin main     # Push to GitHub → auto-deploys to Vercel
 
-# Firebase
-firebase deploy          # Deploy to Firebase Hosting
-firebase login           # Authenticate Firebase CLI
+# Deployment (Automatic via Vercel)
+# No manual commands needed - pushing to main triggers deployment
+# Check status at: vercel.com dashboard
+# Deployment takes 1-2 minutes after push
 
-# Cloud Run
-gcloud run deploy        # Deploy to Cloud Run
-gcloud run services list # List deployed services
+# Firebase (Database/Auth only - NOT hosting)
+# Firebase is used for Firestore + Authentication
+# Database is always live - no deployment needed
 ```
 
 ### Important URLs

@@ -81,6 +81,21 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     distanceTraveled: number;
   } | null>(null);
   const [completedStops, setCompletedStops] = useState<Set<string>>(new Set()); // Track by stop.id, not address
+
+  // Paused trips stack - for mid-route diversions
+  interface PausedTrip {
+    origin: string;
+    originLocation: google.maps.LatLngLiteral;
+    destination: string;
+    destinationLocation: google.maps.LatLngLiteral;
+    destinationStopId: string;
+    pausedAt: number;
+    originalStartTime: number;
+  }
+  const [pausedTrips, setPausedTrips] = useState<PausedTrip[]>([]);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [tripToResume, setTripToResume] = useState<PausedTrip | null>(null);
+
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
   const lastDestinationAddress = useRef<string | null>(null); // Track last completed destination for origin address
@@ -664,6 +679,37 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   };
 
+  // Calculate route distance using Google Directions API
+  const getRouteDistance = async (
+    origin: google.maps.LatLngLiteral,
+    destination: google.maps.LatLngLiteral
+  ): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      if (!directionsServiceRef.current) {
+        directionsServiceRef.current = new google.maps.DirectionsService();
+      }
+
+      directionsServiceRef.current.route(
+        {
+          origin: origin,
+          destination: destination,
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (status === google.maps.DirectionsStatus.OK && result) {
+            const distanceMeters = result.routes[0]?.legs[0]?.distance?.value || 0;
+            const distanceKm = distanceMeters / 1000;
+            console.log('[SubRoute] Google Directions distance:', distanceKm.toFixed(2), 'km');
+            resolve(distanceKm);
+          } else {
+            console.error('[SubRoute] Directions API failed:', status);
+            reject(new Error(`Directions API failed: ${status}`));
+          }
+        }
+      );
+    });
+  };
+
   // Log completed trip when arrival detected
   const logCompletedTrip = async () => {
     console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isLogging:', isLoggingTrip.current);
@@ -688,11 +734,38 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     const endTime = Date.now();
     const durationMinutes = Math.round((endTime - tripToLog.startTime) / (1000 * 60));
 
-    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, distance:', tripToLog.distanceTraveled, 'km');
+    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, GPS distance:', tripToLog.distanceTraveled, 'km');
 
     // Clear activeTrip state
     setActiveTrip(null);
     console.log('[SubRoute] Active trip state cleared');
+
+    // Get accurate distance from Google Directions API (not GPS)
+    let distanceKm = tripToLog.distanceTraveled; // Fallback to GPS distance
+    try {
+      console.log('[SubRoute] 📍 Calculating route distance via Google Directions API...');
+      const routeDistance = await getRouteDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+      distanceKm = routeDistance;
+      console.log('[SubRoute] ✅ Using Google route distance:', distanceKm.toFixed(2), 'km');
+
+      // Log if GPS distance was significantly different
+      if (tripToLog.distanceTraveled > 0) {
+        const difference = Math.abs(distanceKm - tripToLog.distanceTraveled);
+        const percentDiff = (difference / distanceKm) * 100;
+        if (percentDiff > 20) {
+          console.warn(`[SubRoute] ⚠️ GPS distance (${tripToLog.distanceTraveled.toFixed(2)} km) differs from route distance by ${percentDiff.toFixed(0)}%`);
+        }
+      }
+    } catch (e) {
+      console.warn('[SubRoute] ⚠️ Failed to get Google route distance, using GPS fallback:', e);
+    }
+
+    // Validation: Minimum trip threshold (100 meters)
+    if (distanceKm < 0.1) {
+      console.warn('[SubRoute] Trip too short (<100m), not logging');
+      isLoggingTrip.current = false;
+      return;
+    }
 
     // Get vehicle info
     let vehicleString = 'Unknown Vehicle';
@@ -706,7 +779,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.error('Failed to load vehicle info', e);
     }
 
-    // Create trip log with actual GPS distance
+    // Create trip log with Google Directions distance (accurate road distance)
     const tripLog: TripLog = {
       id: Date.now().toString(),
       timestamp: endTime,
@@ -715,7 +788,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       origin: tripToLog.origin,
       destination: tripToLog.destination,
-      distanceKm: Math.round(tripToLog.distanceTraveled * 10) / 10, // Round to 1 decimal
+      distanceKm: Math.round(distanceKm * 10) / 10, // Round to 1 decimal
       vehicleString,
       durationMinutes,
     };
@@ -742,6 +815,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       // RELEASE MUTEX after successful logging
       isLoggingTrip.current = false;
       console.log('[SubRoute] 🔓 Mutex released');
+
+      // Check for paused trips to resume
+      if (pausedTrips.length > 0) {
+        const nextTrip = pausedTrips[pausedTrips.length - 1]; // Get last paused trip (LIFO)
+        console.log('[SubRoute] 📋 Found paused trip to resume:', nextTrip.destination);
+        setTripToResume(nextTrip);
+        setShowResumeModal(true);
+      }
     } catch (e) {
       console.error('[SubRoute] ❌ Failed to save trip log:', e);
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';
@@ -777,13 +858,26 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const startNavigationToStop = async (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
-    // CRITICAL FIX: If there's already an active trip, complete it first before starting new one
+    // If there's already an active trip, PAUSE it instead of completing
     if (activeTrip) {
       console.log('[SubRoute] ⚠️ Active trip already running to:', activeTrip.destination);
-      console.log('[SubRoute] Completing previous trip before starting new one...');
-      await logCompletedTrip();
-      // Wait a brief moment for state to update
-      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('[SubRoute] 📋 Pausing current trip and adding to stack...');
+
+      // Push current trip to paused stack
+      const pausedTrip: PausedTrip = {
+        origin: activeTrip.origin,
+        originLocation: activeTrip.originLocation,
+        destination: activeTrip.destination,
+        destinationLocation: activeTrip.destinationLocation,
+        destinationStopId: activeTrip.destinationStopId,
+        pausedAt: Date.now(),
+        originalStartTime: activeTrip.startTime,
+      };
+      setPausedTrips(prev => [...prev, pausedTrip]);
+      console.log('[SubRoute] 📋 Trip paused:', pausedTrip.destination, '- Stack size:', pausedTrips.length + 1);
+
+      // Clear active trip
+      setActiveTrip(null);
     }
 
     if (!currentLocation && !lastGpsPosition.current) {
@@ -792,13 +886,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return;
     }
 
-    // Determine origin: use lastGpsPosition if available (from completed trip), otherwise current location
-    const origin = lastGpsPosition.current || currentLocation || stops[0]?.location;
+    // Determine origin: use current GPS position (not last destination since we may have diverted)
+    const origin = currentLocation || lastGpsPosition.current || stops[0]?.location;
 
-    // For origin address: use actual last destination if available, otherwise depot or current location
-    const originAddress = lastDestinationAddress.current
-      ? lastDestinationAddress.current
-      : (depotAddress?.address || 'Current Location');
+    // For origin address: use current location description for diverted trips
+    const originAddress = activeTrip
+      ? 'Current Location' // We diverted, so origin is current location
+      : (lastDestinationAddress.current || depotAddress?.address || 'Current Location');
 
     if (!origin) {
       console.error('[SubRoute] No origin available!');
@@ -836,6 +930,66 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return;
     }
     await logCompletedTrip();
+  };
+
+  // Resume a paused trip
+  const handleResumePausedTrip = () => {
+    if (!tripToResume) return;
+
+    console.log('[SubRoute] 🔄 Resuming paused trip to:', tripToResume.destination);
+
+    // Get current location as origin
+    const origin = currentLocation || lastGpsPosition.current;
+    if (!origin) {
+      alert('Unable to determine your current location. Please enable GPS and try again.');
+      return;
+    }
+
+    // Create new active trip from paused trip data (fresh start from current location)
+    const resumedTrip = {
+      origin: lastDestinationAddress.current || 'Current Location',
+      originLocation: origin,
+      destination: tripToResume.destination,
+      destinationLocation: tripToResume.destinationLocation,
+      destinationStopId: tripToResume.destinationStopId,
+      startTime: Date.now(), // Fresh start time
+      distanceTraveled: 0,
+    };
+
+    setActiveTrip(resumedTrip);
+    lastGpsPosition.current = origin;
+
+    // Remove this trip from paused stack
+    setPausedTrips(prev => prev.slice(0, -1));
+
+    // Close modal
+    setShowResumeModal(false);
+    setTripToResume(null);
+
+    console.log('[SubRoute] ✅ Trip resumed:', resumedTrip.destination);
+  };
+
+  // Dismiss a paused trip without resuming
+  const handleDismissPausedTrip = () => {
+    if (!tripToResume) return;
+
+    console.log('[SubRoute] ❌ Dismissing paused trip to:', tripToResume.destination);
+
+    // Remove this trip from paused stack
+    setPausedTrips(prev => prev.slice(0, -1));
+
+    // Close modal
+    setShowResumeModal(false);
+    setTripToResume(null);
+
+    // Check if there are more paused trips
+    if (pausedTrips.length > 1) {
+      const nextTrip = pausedTrips[pausedTrips.length - 2]; // Get next one in stack
+      setTimeout(() => {
+        setTripToResume(nextTrip);
+        setShowResumeModal(true);
+      }, 300);
+    }
   };
 
   // Navigate all stops at once using Google Maps multi-waypoint
@@ -1815,6 +1969,71 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resume Paused Trip Modal */}
+      {showResumeModal && tripToResume && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span>Resume Trip?</span>
+                </h2>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-blue-800 mb-2">
+                  You have a paused trip to:
+                </p>
+                <p className="font-semibold text-blue-900 text-lg">
+                  {tripToResume.destination}
+                </p>
+                {pausedTrips.length > 1 && (
+                  <p className="text-xs text-blue-600 mt-2">
+                    + {pausedTrips.length - 1} more paused trip{pausedTrips.length > 2 ? 's' : ''}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4">
+                Would you like to resume this trip from your current location?
+              </p>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleDismissPausedTrip}
+                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  No, Skip
+                </button>
+                <button
+                  onClick={handleResumePausedTrip}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                >
+                  Yes, Resume
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Paused Trips Indicator */}
+      {pausedTrips.length > 0 && !showResumeModal && (
+        <div className="fixed bottom-4 left-4 z-40">
+          <div className="bg-yellow-100 border border-yellow-400 rounded-lg shadow-lg p-3 flex items-center space-x-2">
+            <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span className="text-sm font-medium text-yellow-800">
+              {pausedTrips.length} paused trip{pausedTrips.length > 1 ? 's' : ''}
+            </span>
           </div>
         </div>
       )}

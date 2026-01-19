@@ -116,6 +116,7 @@ export const getDefaultVehicle = async (userId: string): Promise<Vehicle | null>
 export interface UserPreferences {
   depotAddress?: string;
   currentOdometer?: number;
+  preferredNavApp?: 'google' | 'waze';
 }
 
 export const saveUserPreferences = async (userId: string, prefs: UserPreferences): Promise<void> => {

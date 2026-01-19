@@ -62,6 +62,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [favoriteToSave, setFavoriteToSave] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
   const [favoriteName, setFavoriteName] = useState('');
   const [showMapOnMobile, setShowMapOnMobile] = useState(false);
+  const [preferredNavApp, setPreferredNavApp] = useState<'google' | 'waze'>('google');
 
   // Fuel stop modal state
   const [showFuelStopModal, setShowFuelStopModal] = useState(false);
@@ -153,19 +154,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   }, []);
 
-  // Load depot address from Firestore
+  // Load depot address and navigation preference from Firestore
   useEffect(() => {
-    const loadDepotAddress = async () => {
+    const loadUserPrefs = async () => {
       try {
         const prefs = await getUserPreferences(user.id);
         if (prefs.depotAddress) {
           setDepotAddress(JSON.parse(prefs.depotAddress));
         }
+        if (prefs.preferredNavApp) {
+          setPreferredNavApp(prefs.preferredNavApp);
+        }
       } catch (error) {
-        console.error('Error loading depot address:', error);
+        console.error('Error loading user preferences:', error);
       }
     };
-    loadDepotAddress();
+    loadUserPrefs();
   }, [user.id]);
 
   // Load address history
@@ -408,7 +412,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   }, [currentLocation]);
 
-  const addStop = (address: string, location: google.maps.LatLngLiteral, type: 'pickup' | 'delivery') => {
+  // Add stop AND auto-navigate with preferred app (streamlined flow)
+  const addStopAndNavigate = (address: string, location: google.maps.LatLngLiteral, type: 'pickup' | 'delivery') => {
     const newStop: Stop = {
       id: Date.now().toString(),
       address,
@@ -418,15 +423,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
     setStops((prev) => [...prev, newStop]);
     setPendingStop(null);
+
+    // Auto-navigate with preferred app
+    startNavigationToStop(newStop, preferredNavApp);
   };
 
   const addFromHistory = (historyItem: SavedAddress, type: 'pickup' | 'delivery') => {
-    addStop(historyItem.address, historyItem.location, type);
+    addStopAndNavigate(historyItem.address, historyItem.location, type);
     setShowHistory(false);
   };
 
   const addFromFavorite = (favorite: FavoriteAddress, type: 'pickup' | 'delivery') => {
-    addStop(favorite.address, favorite.location, type);
+    addStopAndNavigate(favorite.address, favorite.location, type);
   };
 
   const openSaveFavoriteModal = (address: string, location: google.maps.LatLngLiteral) => {
@@ -1213,14 +1221,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <span>{showTraffic ? 'Hide Traffic' : 'Show Traffic'}</span>
           </button>
 
-          {/* Pickup/Delivery Choice Modal */}
+          {/* Pickup/Delivery Choice Modal - Auto-navigates with preferred app */}
           {pendingStop && (
             <div className="mt-2 p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
               <p className="text-sm font-semibold text-blue-900 mb-2 truncate">{pendingStop.address}</p>
-              <p className="text-xs text-blue-700 mb-3">Add this stop as:</p>
+              <p className="text-xs text-blue-700 mb-3">Tap to add stop & navigate:</p>
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => addStop(pendingStop.address, pendingStop.location, 'pickup')}
+                  onClick={() => addStopAndNavigate(pendingStop.address, pendingStop.location, 'pickup')}
                   className="px-4 py-4 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold text-sm flex flex-col items-center justify-center space-y-1 min-h-[70px] shadow-lg active:scale-95 transition-transform"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1229,10 +1237,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   <span>Pickup</span>
                 </button>
                 <button
-                  onClick={() => {
-                    addStop(pendingStop.address, pendingStop.location, 'delivery');
-                    setPendingStop(null);
-                  }}
+                  onClick={() => addStopAndNavigate(pendingStop.address, pendingStop.location, 'delivery')}
                   className="px-4 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 font-bold text-sm flex flex-col items-center justify-center space-y-1 min-h-[70px] shadow-lg active:scale-95 transition-transform"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

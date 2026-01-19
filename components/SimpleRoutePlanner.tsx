@@ -29,6 +29,17 @@ interface Stop {
   notes?: string;
 }
 
+// Paused trips stack - for mid-route diversions
+interface PausedTrip {
+  origin: string;
+  originLocation: google.maps.LatLngLiteral;
+  destination: string;
+  destinationLocation: google.maps.LatLngLiteral;
+  destinationStopId: string;
+  pausedAt: number;
+  originalStartTime: number;
+}
+
 export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, onBack }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -83,15 +94,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [completedStops, setCompletedStops] = useState<Set<string>>(new Set()); // Track by stop.id, not address
 
   // Paused trips stack - for mid-route diversions
-  interface PausedTrip {
-    origin: string;
-    originLocation: google.maps.LatLngLiteral;
-    destination: string;
-    destinationLocation: google.maps.LatLngLiteral;
-    destinationStopId: string;
-    pausedAt: number;
-    originalStartTime: number;
-  }
   const [pausedTrips, setPausedTrips] = useState<PausedTrip[]>([]);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [tripToResume, setTripToResume] = useState<PausedTrip | null>(null);

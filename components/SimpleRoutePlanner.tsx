@@ -61,7 +61,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [showFavoriteModal, setShowFavoriteModal] = useState(false);
   const [favoriteToSave, setFavoriteToSave] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
   const [favoriteName, setFavoriteName] = useState('');
-  const [showMapOnMobile, setShowMapOnMobile] = useState(false);
   const [preferredNavApp, setPreferredNavApp] = useState<'google' | 'waze'>('google');
 
   // Fuel stop modal state
@@ -1116,7 +1115,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   return (
     <div className="flex h-[calc(100vh-64px)] bg-gray-50 relative">
       {/* Left Sidebar - Stops List */}
-      <div className={`w-full md:w-80 bg-white md:border-r border-gray-200 flex flex-col shadow-lg ${showMapOnMobile ? 'hidden md:flex' : 'flex'}`}>
+      <div className="w-full md:w-80 bg-white md:border-r border-gray-200 flex flex-col shadow-lg">
         {/* Search and Controls */}
         <div className="p-4 border-b border-gray-200">
 
@@ -1412,38 +1411,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       )}
                     </div>
 
-                    {/* Navigation buttons for each uncompleted stop */}
-                    {!isCompleted && (
-                      <div className="grid grid-cols-3 gap-1 px-2">
+                    {/* Manual complete button - only shows when en route to this stop */}
+                    {!isCompleted && isActiveDestination && (
+                      <div className="px-2 mt-1">
                         <button
-                          onClick={() => startNavigationToStop(stop, 'google')}
-                          className="px-3 py-2.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 flex items-center justify-center space-x-1 min-h-[44px]"
+                          onClick={() => manualCompleteStop(stop)}
+                          className="w-full px-3 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center justify-center space-x-2 min-h-[44px]"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                           </svg>
-                          <span>Google</span>
+                          <span>Mark as Done</span>
                         </button>
-                        <button
-                          onClick={() => startNavigationToStop(stop, 'waze')}
-                          className="px-3 py-2.5 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 flex items-center justify-center space-x-1 min-h-[44px]"
-                        >
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
-                          </svg>
-                          <span>Waze</span>
-                        </button>
-                        {isActiveDestination && (
-                          <button
-                            onClick={() => manualCompleteStop(stop)}
-                            className="px-3 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center justify-center space-x-1 min-h-[44px]"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Done</span>
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
@@ -1552,40 +1531,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </button>
             )}
 
-            {/* Compact Action Buttons - Side by Side */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={clearAll}
-                className="px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm min-h-[44px]"
-              >
-                Clear All
-              </button>
-              <button
-                onClick={() => setShowMapOnMobile(true)}
-                className="md:hidden px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm flex items-center justify-center space-x-1 min-h-[44px]"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
-                </svg>
-                <span>Map</span>
-              </button>
-            </div>
+            {/* Clear All Button */}
+            <button
+              onClick={clearAll}
+              className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm min-h-[44px]"
+            >
+              Clear All
+            </button>
           </div>
         )}
       </div>
 
-      {/* Right Side - Map */}
-      <div className={`flex-1 relative ${showMapOnMobile ? 'flex' : 'hidden md:flex'}`}>
-        {/* Mobile Back Button */}
-        <button
-          onClick={() => setShowMapOnMobile(false)}
-          className="md:hidden absolute top-4 left-4 z-10 px-4 py-2 bg-white text-gray-700 rounded-lg shadow-lg hover:bg-gray-50 font-medium text-sm flex items-center space-x-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-          </svg>
-          <span>Back to Route</span>
-        </button>
+      {/* Right Side - Map (desktop only) */}
+      <div className="flex-1 relative hidden md:flex">
         <div ref={mapRef} className="absolute inset-0" />
       </div>
 

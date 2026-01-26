@@ -1,0 +1,117 @@
+# SubRoute - Claude Tasks & Source of Truth
+# Last Updated: 2026-01-26
+
+## PROJECT OVERVIEW
+SubRoute is a courier logistics app for Australian delivery drivers.
+- Track trips for ATO tax deductions
+- Route planning with Google Maps/Waze integration
+- Trip logging with distance, time, origin/destination
+- Vehicle and fuel tracking
+
+## CURRENT STATUS
+
+### FIXED (2026-01-26)
+
+#### 1. Navigation Not Opening Reliably - FIXED
+- PROBLEM: startNavigationToStop() returned early if currentLocation was null
+- SOLUTION:
+  - Removed blocking check for currentLocation
+  - Navigation apps handle current location themselves
+  - Changed from window.open() to window.location.href for better mobile support
+  - Added try/catch with user feedback
+
+#### 2. Trip Distance Always Wrong - FIXED
+- PROBLEM: Used GPS tracking (distanceTraveled) which doesn't work when app backgrounded
+- SOLUTION:
+  - Added getRouteDistance() function using Google Directions API
+  - logCompletedTrip() now calculates actual road distance
+  - Fallback to straight-line * 1.3 if API fails
+
+### STILL NEEDS WORK
+
+#### 3. Morning Startup Slowness
+- SYMPTOM: App struggles to initialize, slow to find first address
+- LIKELY CAUSES:
+  - Multiple useEffect hooks racing on mount
+  - Google Maps API loading async
+  - Firestore queries blocking render
+- TODO: Add loading states, defer non-critical operations
+
+#### 4. ATO Compliance - Needs Review
+- REQUIREMENTS FOR ATO LOGBOOK:
+  - Date of trip ✓
+  - Start time and end time ✓
+  - Start odometer and end odometer ✗ (calculated, not actual)
+  - Origin address ✓
+  - Destination address ✓
+  - Purpose of trip ✓ (hardcoded as "Business - Courier Delivery")
+  - Distance traveled ✓ (now using Google Directions)
+  - Vehicle details ✓
+- TODO: Add actual odometer reading prompts
+
+#### 5. Manual Trip Entry
+- TODO: Add ability to manually log a trip if auto-detection fails
+- Useful for when app wasn't open during trip
+
+## ARCHITECTURE NOTES
+
+### Key Files
+- /components/SimpleRoutePlanner.tsx - Main route planning UI
+- /components/TripLogbook.tsx - Trip history display
+- /lib/firestore.ts - Database operations
+- /types.ts - TypeScript interfaces
+
+### Data Flow (Current - Fixed)
+1. User selects address → pendingStop set
+2. User clicks Pickup/Delivery → addStopAndNavigate() called
+3. Stop added to state, startNavigationToStop() called
+4. Navigation URL opened via window.location.href (not window.open)
+5. activeTrip set with origin/destination
+6. When "Mark as Done" clicked → logCompletedTrip()
+7. Google Directions API calculates road distance
+8. Trip saved to Firestore with correct distance
+
+### Key Functions
+- addStopAndNavigate() - Adds stop and opens nav app
+- startNavigationToStop() - Opens Google Maps or Waze
+- logCompletedTrip() - Saves trip with Google Directions distance
+- getRouteDistance() - NEW: Calls Google Directions API for distance
+
+## RECENT CHANGES
+
+### 2026-01-26: Critical Bug Fixes
+1. Navigation now uses window.location.href instead of window.open
+2. Removed blocking check for currentLocation in startNavigationToStop
+3. Added getRouteDistance() using Google Directions API
+4. logCompletedTrip() now gets actual road distance from Google
+5. Added straight-line fallback with 1.3x multiplier
+
+### 2026-01-26: UI Streamlining
+- Removed per-stop Google/Waze buttons
+- Added preferredNavApp setting in Settings
+- Combined Pickup/Delivery click with auto-navigation
+- Removed Map button from footer
+
+## TESTING CHECKLIST
+
+### Before Any Release
+- [ ] Cold start app - does address search work immediately?
+- [ ] Add address via voice - does it recognize?
+- [ ] Click Pickup - does nav app open?
+- [ ] Complete trip via "Mark as Done" - does it log correctly?
+- [ ] Check TripLog - are trips visible with correct distance?
+- [ ] Export to CSV - does it have all ATO fields?
+
+## KNOWN ISSUES TO WATCH
+
+1. Popup blockers may still block navigation on some browsers
+2. Google Directions API has usage limits
+3. GPS arrival detection (50m radius) may not trigger if user doesn't return to app
+
+## NOTES FOR FUTURE SESSIONS
+- User is a courier driver in Australia
+- Primary use: mobile phone while driving
+- Must work offline/poor signal areas (TODO: add offline support)
+- ATO compliance is critical for tax deductions
+- Google Timeline is the UX benchmark
+- User prefers minimal clicks - streamlined flow is important

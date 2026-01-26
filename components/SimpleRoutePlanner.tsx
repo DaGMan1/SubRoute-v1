@@ -671,6 +671,35 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   };
 
+  // Get route distance from Google Directions API
+  const getRouteDistance = async (origin: google.maps.LatLngLiteral, destination: google.maps.LatLngLiteral): Promise<number> => {
+    return new Promise((resolve) => {
+      if (!directionsServiceRef.current) {
+        console.warn('[SubRoute] Directions service not available, using fallback');
+        resolve(0);
+        return;
+      }
+
+      directionsServiceRef.current.route(
+        {
+          origin,
+          destination,
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (status === 'OK' && result && result.routes[0]?.legs[0]?.distance) {
+            const distanceKm = result.routes[0].legs[0].distance.value / 1000;
+            console.log('[SubRoute] Google Directions distance:', distanceKm, 'km');
+            resolve(distanceKm);
+          } else {
+            console.warn('[SubRoute] Directions request failed:', status);
+            resolve(0);
+          }
+        }
+      );
+    });
+  };
+
   // Log completed trip when arrival detected
   const logCompletedTrip = async () => {
     console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isLogging:', isLoggingTrip.current);
@@ -695,11 +724,27 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     const endTime = Date.now();
     const durationMinutes = Math.round((endTime - tripToLog.startTime) / (1000 * 60));
 
-    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes, distance:', tripToLog.distanceTraveled, 'km');
+    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes');
 
     // Clear activeTrip state
     setActiveTrip(null);
     console.log('[SubRoute] Active trip state cleared');
+
+    // Get ACTUAL road distance from Google Directions API (not GPS tracking)
+    let distanceKm = 0;
+    try {
+      distanceKm = await getRouteDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+      console.log('[SubRoute] Route distance from Google:', distanceKm, 'km');
+    } catch (e) {
+      console.error('[SubRoute] Failed to get route distance:', e);
+    }
+
+    // Fallback: if Google Directions failed, use straight-line distance as minimum
+    if (distanceKm === 0) {
+      const straightLine = calculateDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+      distanceKm = straightLine * 1.3; // Add 30% for road distance approximation
+      console.log('[SubRoute] Using straight-line fallback:', distanceKm.toFixed(1), 'km');
+    }
 
     // Get vehicle info
     let vehicleString = 'Unknown Vehicle';
@@ -713,7 +758,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.error('Failed to load vehicle info', e);
     }
 
-    // Create trip log with actual GPS distance
+    // Create trip log with Google Directions distance
     const tripLog: TripLog = {
       id: Date.now().toString(),
       timestamp: endTime,
@@ -722,7 +767,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       origin: tripToLog.origin,
       destination: tripToLog.destination,
-      distanceKm: Math.round(tripToLog.distanceTraveled * 10) / 10, // Round to 1 decimal
+      distanceKm: Math.round(distanceKm * 10) / 10, // Round to 1 decimal
       vehicleString,
       durationMinutes,
     };
@@ -793,29 +838,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    if (!currentLocation && !lastGpsPosition.current) {
-      console.warn('[SubRoute] No current location available!');
-      alert('Unable to determine your current location. Please enable GPS and try again.');
-      return;
-    }
-
-    // Determine origin: use lastGpsPosition if available (from completed trip), otherwise current location
-    const origin = lastGpsPosition.current || currentLocation || stops[0]?.location;
+    // Determine origin: use lastGpsPosition if available, then currentLocation, then destination itself
+    // FIXED: Don't block on missing location - navigation apps can figure out current location
+    const origin = lastGpsPosition.current || currentLocation || null;
 
     // For origin address: use actual last destination if available, otherwise depot or current location
     const originAddress = lastDestinationAddress.current
       ? lastDestinationAddress.current
       : (depotAddress?.address || 'Current Location');
 
-    if (!origin) {
-      console.error('[SubRoute] No origin available!');
-      return;
-    }
-
     // Start tracking this NEW trip
     const newTrip = {
       origin: originAddress,
-      originLocation: origin,
+      originLocation: origin || stop.location, // Fallback to destination if no origin
       destination: stop.address,
       destinationLocation: stop.location,
       destinationStopId: stop.id, // Track stop ID for completion
@@ -824,15 +859,28 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     };
     console.log('[SubRoute] 🚗 Starting NEW trip tracking:', newTrip);
     setActiveTrip(newTrip);
-    lastGpsPosition.current = origin;
+    if (origin) {
+      lastGpsPosition.current = origin;
+    }
 
-    // Open navigation app
-    if (navApp === 'google') {
-      const url = `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`;
-      window.open(url, '_blank');
-    } else {
-      const wazeUrl = `https://waze.com/ul?ll=${stop.location.lat}%2C${stop.location.lng}&navigate=yes&zoom=17`;
-      window.open(wazeUrl, '_blank');
+    // Open navigation app - ALWAYS open, don't block on location
+    // Navigation apps handle current location themselves
+    try {
+      if (navApp === 'google') {
+        // If we have origin, include it. Otherwise just navigate to destination
+        const url = origin
+          ? `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`
+          : `https://www.google.com/maps/dir/?api=1&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`;
+        console.log('[SubRoute] Opening Google Maps:', url);
+        window.location.href = url; // Use location.href instead of window.open for better mobile support
+      } else {
+        const wazeUrl = `https://waze.com/ul?ll=${stop.location.lat}%2C${stop.location.lng}&navigate=yes&zoom=17`;
+        console.log('[SubRoute] Opening Waze:', wazeUrl);
+        window.location.href = wazeUrl; // Use location.href instead of window.open for better mobile support
+      }
+    } catch (e) {
+      console.error('[SubRoute] Failed to open navigation app:', e);
+      alert('Failed to open navigation app. Please try again.');
     }
   };
 

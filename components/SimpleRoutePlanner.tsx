@@ -69,6 +69,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [fuelStopLiters, setFuelStopLiters] = useState('');
   const [fuelStopCost, setFuelStopCost] = useState('');
   const [fuelStopOdometer, setFuelStopOdometer] = useState('');
+  const [fuelStopSaving, setFuelStopSaving] = useState(false);
 
   // Point-to-point trip tracking
   const [activeTrip, setActiveTrip] = useState<{
@@ -420,8 +421,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       type,
     };
 
-    setStops((prev) => [...prev, newStop]);
+    const updatedStops = [...stops, newStop];
+    setStops(updatedStops);
     setPendingStop(null);
+
+    // Persist updated stops synchronously before navigation redirects away
+    persistRouteStateSync({ stops: updatedStops });
 
     // Auto-navigate with preferred app
     startNavigationToStop(newStop, preferredNavApp);
@@ -825,21 +830,39 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setDraggedIndex(null);
   };
 
+  // Synchronously persist route state to localStorage (don't rely on React effect)
+  const persistRouteStateSync = (overrides: {
+    activeTrip?: typeof activeTrip;
+    stops?: Stop[];
+    completedStops?: Set<string>;
+  } = {}) => {
+    try {
+      const routeState = {
+        stops: overrides.stops ?? stops,
+        routeDetails,
+        routeStartTime,
+        depotStart: routeBegunFromDepot,
+        activeTrip: overrides.activeTrip !== undefined ? overrides.activeTrip : activeTrip,
+        completedStops: Array.from(overrides.completedStops ?? completedStops),
+      };
+      localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
+      console.log('[SubRoute] Route state persisted synchronously');
+    } catch (error) {
+      console.error('[SubRoute] Failed to persist route state:', error);
+    }
+  };
+
   // Start navigation to a specific stop (point-to-point)
-  const startNavigationToStop = async (stop: Stop, navApp: 'google' | 'waze') => {
+  const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
-    // CRITICAL FIX: If there's already an active trip, complete it first before starting new one
+    // If there's already an active trip, fire completion in background (don't block navigation)
     if (activeTrip) {
-      console.log('[SubRoute] ⚠️ Active trip already running to:', activeTrip.destination);
-      console.log('[SubRoute] Completing previous trip before starting new one...');
-      await logCompletedTrip();
-      // Wait a brief moment for state to update
-      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('[SubRoute] Active trip running to:', activeTrip.destination, '- logging in background');
+      logCompletedTrip(); // Fire and forget - don't await
     }
 
     // Determine origin: use lastGpsPosition if available, then currentLocation, then destination itself
-    // FIXED: Don't block on missing location - navigation apps can figure out current location
     const origin = lastGpsPosition.current || currentLocation || null;
 
     // For origin address: use actual last destination if available, otherwise depot or current location
@@ -857,26 +880,28 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       startTime: Date.now(),
       distanceTraveled: 0,
     };
-    console.log('[SubRoute] 🚗 Starting NEW trip tracking:', newTrip);
+    console.log('[SubRoute] Starting NEW trip tracking:', newTrip);
     setActiveTrip(newTrip);
     if (origin) {
       lastGpsPosition.current = origin;
     }
 
+    // CRITICAL: Persist to localStorage SYNCHRONOUSLY before navigating away
+    // React state effects won't fire before window.location.href redirects
+    persistRouteStateSync({ activeTrip: newTrip });
+
     // Open navigation app - ALWAYS open, don't block on location
-    // Navigation apps handle current location themselves
     try {
       if (navApp === 'google') {
-        // If we have origin, include it. Otherwise just navigate to destination
         const url = origin
           ? `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`
           : `https://www.google.com/maps/dir/?api=1&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`;
         console.log('[SubRoute] Opening Google Maps:', url);
-        window.location.href = url; // Use location.href instead of window.open for better mobile support
+        window.location.href = url;
       } else {
         const wazeUrl = `https://waze.com/ul?ll=${stop.location.lat}%2C${stop.location.lng}&navigate=yes&zoom=17`;
         console.log('[SubRoute] Opening Waze:', wazeUrl);
-        window.location.href = wazeUrl; // Use location.href instead of window.open for better mobile support
+        window.location.href = wazeUrl;
       }
     } catch (e) {
       console.error('[SubRoute] Failed to open navigation app:', e);
@@ -962,12 +987,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return;
     }
 
+    if (fuelStopSaving) return; // Prevent double-tap
+    setFuelStopSaving(true);
+
     try {
       // Get default vehicle
       const vehicles = await getVehicles(user.id);
       const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
       if (!defaultVehicle) {
-        alert('No default vehicle found. Please set up a vehicle first.');
+        alert('No default vehicle found. Please set up a vehicle in Settings first.');
+        setFuelStopSaving(false);
+        return;
+      }
+
+      if (!defaultVehicle.id) {
+        alert('Vehicle data is missing an ID. Please re-add the vehicle in Settings.');
+        setFuelStopSaving(false);
         return;
       }
 
@@ -978,14 +1013,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         liters: fuelStopLiters ? parseFloat(fuelStopLiters) : undefined,
         costAUD: fuelStopCost ? parseFloat(fuelStopCost) : undefined,
         location: fuelStopLocation || undefined,
-        tripId: routeStartTime ? routeStartTime.toString() : undefined, // Link to current trip if active
+        tripId: routeStartTime ? routeStartTime.toString() : undefined,
       };
 
       await saveFuelStop(user.id, defaultVehicle.id, fuelStop);
 
       alert('Fuel stop logged successfully!');
 
-      // Reset form and close modal
+      // Reset form and close modal only on success
       setFuelStopLocation('');
       setFuelStopLiters('');
       setFuelStopCost('');
@@ -993,7 +1028,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       setShowFuelStopModal(false);
     } catch (e) {
       console.error('Failed to save fuel stop', e);
-      alert('Failed to save fuel stop');
+      const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+      alert('Failed to save fuel stop: ' + errorMsg + '\n\nYour data has been kept - please try again.');
+    } finally {
+      setFuelStopSaving(false);
     }
   };
 
@@ -1473,6 +1511,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                         </button>
                       </div>
                     )}
+
+                    {/* Go Again button - re-navigate to a completed stop */}
+                    {isCompleted && (
+                      <div className="px-2 mt-1">
+                        <button
+                          onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                          className="w-full px-3 py-2.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center justify-center space-x-2 min-h-[44px]"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                          </svg>
+                          <span>Go Again</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1820,9 +1874,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </button>
                 <button
                   onClick={saveFuelStopHandler}
-                  className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium"
+                  disabled={fuelStopSaving}
+                  className={`flex-1 px-4 py-2 text-white rounded-lg font-medium ${fuelStopSaving ? 'bg-orange-400 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'}`}
                 >
-                  Log Fuel Stop
+                  {fuelStopSaving ? 'Saving...' : 'Log Fuel Stop'}
                 </button>
               </div>
             </div>

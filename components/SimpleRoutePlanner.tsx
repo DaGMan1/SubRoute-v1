@@ -981,6 +981,55 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setShowFuelStopModal(true);
   };
 
+  // Save a pending fuel stop to localStorage backup queue
+  const saveFuelStopToBackup = (vehicleId: string, fuelStop: FuelStop) => {
+    try {
+      const key = `subroute_pending_fuel_stops_${user.id}`;
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      existing.push({ vehicleId, fuelStop });
+      localStorage.setItem(key, JSON.stringify(existing));
+      console.log('[SubRoute] Fuel stop saved to localStorage backup');
+    } catch (err) {
+      console.error('[SubRoute] Failed to save fuel stop backup:', err);
+    }
+  };
+
+  // Retry any pending fuel stops from localStorage on mount
+  useEffect(() => {
+    const retryPendingFuelStops = async () => {
+      const key = `subroute_pending_fuel_stops_${user.id}`;
+      try {
+        const pending = JSON.parse(localStorage.getItem(key) || '[]');
+        if (pending.length === 0) return;
+
+        console.log(`[SubRoute] Retrying ${pending.length} pending fuel stop(s)...`);
+        const stillPending: typeof pending = [];
+
+        for (const item of pending) {
+          try {
+            await saveFuelStop(user.id, item.vehicleId, item.fuelStop);
+            console.log('[SubRoute] Pending fuel stop saved successfully:', item.fuelStop.id);
+          } catch (e) {
+            console.error('[SubRoute] Retry failed for fuel stop:', item.fuelStop.id, e);
+            stillPending.push(item);
+          }
+        }
+
+        if (stillPending.length > 0) {
+          localStorage.setItem(key, JSON.stringify(stillPending));
+          console.log(`[SubRoute] ${stillPending.length} fuel stop(s) still pending`);
+        } else {
+          localStorage.removeItem(key);
+          console.log('[SubRoute] All pending fuel stops synced');
+        }
+      } catch (err) {
+        console.error('[SubRoute] Error retrying pending fuel stops:', err);
+      }
+    };
+
+    retryPendingFuelStops();
+  }, [user.id]);
+
   const saveFuelStopHandler = async () => {
     if (!fuelStopOdometer) {
       alert('Please enter odometer reading');
@@ -1016,11 +1065,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         tripId: routeStartTime ? routeStartTime.toString() : undefined,
       };
 
-      await saveFuelStop(user.id, defaultVehicle.id, fuelStop);
+      try {
+        await saveFuelStop(user.id, defaultVehicle.id, fuelStop);
+        alert('Fuel stop logged successfully!');
+      } catch (firebaseError) {
+        // Firebase failed - save to localStorage backup
+        console.error('[SubRoute] Firebase fuel stop save failed, backing up locally:', firebaseError);
+        saveFuelStopToBackup(defaultVehicle.id, fuelStop);
+        const errorMsg = firebaseError instanceof Error ? firebaseError.message : 'Unknown error';
+        alert('Fuel stop saved locally (Firebase error: ' + errorMsg + '). It will auto-sync next time you open the app.');
+      }
 
-      alert('Fuel stop logged successfully!');
-
-      // Reset form and close modal only on success
+      // Reset form and close modal - data is saved either way
       setFuelStopLocation('');
       setFuelStopLiters('');
       setFuelStopCost('');
@@ -1029,7 +1085,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     } catch (e) {
       console.error('Failed to save fuel stop', e);
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';
-      alert('Failed to save fuel stop: ' + errorMsg + '\n\nYour data has been kept - please try again.');
+      alert('Failed to save fuel stop: ' + errorMsg);
     } finally {
       setFuelStopSaving(false);
     }

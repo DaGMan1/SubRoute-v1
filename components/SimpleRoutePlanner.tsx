@@ -856,19 +856,25 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
-    // If there's already an active trip, fire completion in background (don't block navigation)
+    // If there's already an active trip, capture its data BEFORE firing background log
+    // This prevents the new trip from using stale origin data
+    let previousTripDestination: string | null = null;
+    let previousTripDestinationLocation: google.maps.LatLngLiteral | null = null;
     if (activeTrip) {
+      previousTripDestination = activeTrip.destination;
+      previousTripDestinationLocation = activeTrip.destinationLocation;
       console.log('[SubRoute] Active trip running to:', activeTrip.destination, '- logging in background');
       logCompletedTrip(); // Fire and forget - don't await
     }
 
-    // Determine origin: use lastGpsPosition if available, then currentLocation, then destination itself
-    const origin = lastGpsPosition.current || currentLocation || null;
+    // Determine origin location: use previous trip's destination, then lastGpsPosition, then currentLocation
+    const origin = previousTripDestinationLocation || lastGpsPosition.current || currentLocation || null;
 
-    // For origin address: use actual last destination if available, otherwise depot or current location
-    const originAddress = lastDestinationAddress.current
-      ? lastDestinationAddress.current
-      : (depotAddress?.address || 'Current Location');
+    // For origin address: use previous trip's destination address (most accurate for midstream change),
+    // then lastDestinationAddress ref, then depot, then fallback
+    const originAddress = previousTripDestination
+      ? previousTripDestination
+      : (lastDestinationAddress.current || depotAddress?.address || 'Current Location');
 
     // Start tracking this NEW trip
     const newTrip = {
@@ -1512,12 +1518,23 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                         </div>
                         <div className="flex items-center space-x-1 mt-0.5">
                           {isCompleted && (
-                            <span className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-green-600 text-white">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                              </svg>
-                              <span>TRIP LOGGED</span>
-                            </span>
+                            <>
+                              <span className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-green-600 text-white">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                                </svg>
+                                <span>TRIP LOGGED</span>
+                              </span>
+                              <button
+                                onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                                className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white hover:bg-blue-700"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                </svg>
+                                <span>GO AGAIN</span>
+                              </button>
+                            </>
                           )}
                           {!isCompleted && (isPickup || isDelivery) && (
                             <button
@@ -1568,21 +1585,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       </div>
                     )}
 
-                    {/* Go Again button - re-navigate to a completed stop */}
-                    {isCompleted && (
-                      <div className="px-2 mt-1">
-                        <button
-                          onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                          className="w-full px-3 py-2.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center justify-center space-x-2 min-h-[44px]"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                          </svg>
-                          <span>Go Again</span>
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })}

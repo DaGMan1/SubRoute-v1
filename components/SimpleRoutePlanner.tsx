@@ -1539,14 +1539,27 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                             </>
                           )}
                           {!isCompleted && (isPickup || isDelivery) && (
-                            <button
-                              onClick={() => toggleStopType(stop.id)}
-                              className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
-                              }`}
-                            >
-                              <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={() => toggleStopType(stop.id)}
+                                className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
+                                }`}
+                              >
+                                <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
+                              </button>
+                              {!isActiveDestination && (
+                                <button
+                                  onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                                  className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white hover:bg-blue-700"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                  </svg>
+                                  <span>GO</span>
+                                </button>
+                              )}
+                            </>
                           )}
                           {isDepot && (
                             <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-600 text-white">

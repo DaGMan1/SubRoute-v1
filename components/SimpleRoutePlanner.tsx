@@ -1467,7 +1467,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             </div>
           ) : (
             <div className="space-y-1.5">
-              {stops.map((stop, index) => {
+              {[...stops].reverse().map((stop, displayIndex) => {
+                // displayIndex is reversed, originalIndex is the actual position in stops array
+                const originalIndex = stops.length - 1 - displayIndex;
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
                 const isDepot = stop.type === 'depot';
@@ -1480,9 +1482,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   <div key={stop.id} className="space-y-1">
                     <div
                       draggable={!isCompleted}
-                      onDragStart={() => handleDragStart(index)}
-                      onDragOver={(e) => handleDragOver(e, index)}
-                      onDrop={(e) => handleDrop(e, index)}
+                      onDragStart={() => handleDragStart(originalIndex)}
+                      onDragOver={(e) => handleDragOver(e, originalIndex)}
+                      onDrop={(e) => handleDrop(e, originalIndex)}
                       className={`flex items-center space-x-2 p-2 rounded-lg border ${isCompleted ? '' : 'hover:opacity-80 cursor-move'} ${bgColor}`}
                     >
                       <div className="flex-shrink-0 flex items-center space-x-1.5">
@@ -1496,7 +1498,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
                             </svg>
                             <div className={`w-6 h-6 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
-                              {index + 1}
+                              {originalIndex + 1}
                             </div>
                           </>
                         )}

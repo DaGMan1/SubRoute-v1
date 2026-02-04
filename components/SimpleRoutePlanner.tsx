@@ -1574,15 +1574,29 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
                     {/* Manual complete button - only shows when en route to this stop */}
                     {!isCompleted && isActiveDestination && (
-                      <div className="px-2 mt-1">
+                      <div className="px-2 mt-1 flex space-x-2">
                         <button
                           onClick={() => manualCompleteStop(stop)}
-                          className="w-full px-3 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center justify-center space-x-2 min-h-[44px]"
+                          className="flex-1 px-3 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center justify-center space-x-2 min-h-[44px]"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                           </svg>
-                          <span>Mark as Done</span>
+                          <span>Done</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            // Skip this trip - clear active trip without logging, keep stop for later
+                            console.log('[SubRoute] Skipping trip to:', stop.address);
+                            setActiveTrip(null);
+                            persistRouteStateSync({ activeTrip: null });
+                          }}
+                          className="px-3 py-2.5 bg-gray-500 text-white rounded-lg text-xs font-bold hover:bg-gray-600 flex items-center justify-center space-x-2 min-h-[44px]"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                          </svg>
+                          <span>Skip</span>
                         </button>
                       </div>
                     )}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import type { TripLog, User } from '../types';
-import { subscribeToTripLogs, clearAllTripLogs, getUserPreferences } from '../lib/firestore';
+import type { TripLog, User, FuelStop, Vehicle } from '../types';
+import { subscribeToTripLogs, clearAllTripLogs, getUserPreferences, getVehicles, getFuelStops } from '../lib/firestore';
 
 interface TripLogbookProps {
   user: User;
@@ -19,11 +19,22 @@ interface DailySummary {
   totalDuration: number;
 }
 
+interface FuelEconomyStats {
+  totalLiters: number;
+  totalCost: number;
+  totalKmBetweenFills: number;
+  fillCount: number;
+  avgKmPerTank: number;
+  avgLitersPer100km: number;
+  avgCostPerKm: number;
+}
+
 export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
   const [logs, setLogs] = useState<TripLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('today');
   const [showMenu, setShowMenu] = useState(false);
+  const [fuelStats, setFuelStats] = useState<FuelEconomyStats | null>(null);
 
   useEffect(() => {
     const unsubscribe = subscribeToTripLogs(user.id, (trips) => {
@@ -32,6 +43,58 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
     });
 
     return () => unsubscribe();
+  }, [user.id]);
+
+  // Load fuel economy stats
+  useEffect(() => {
+    const loadFuelStats = async () => {
+      try {
+        const vehicles = await getVehicles(user.id);
+        const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+        if (!defaultVehicle) return;
+
+        const fuelStops = await getFuelStops(user.id, defaultVehicle.id);
+        if (fuelStops.length < 2) return; // Need at least 2 fuel stops to calculate
+
+        // Sort by odometer reading ascending
+        const sorted = [...fuelStops]
+          .filter(f => f.odometerReading > 0)
+          .sort((a, b) => a.odometerReading - b.odometerReading);
+
+        if (sorted.length < 2) return;
+
+        let totalLiters = 0;
+        let totalCost = 0;
+        let totalKm = 0;
+        let fillCount = 0;
+
+        // Calculate between consecutive fills
+        for (let i = 1; i < sorted.length; i++) {
+          const kmBetween = sorted[i].odometerReading - sorted[i - 1].odometerReading;
+          if (kmBetween > 0 && kmBetween < 2000) { // Sanity check: max 2000km between fills
+            totalKm += kmBetween;
+            if (sorted[i].liters) totalLiters += sorted[i].liters!;
+            if (sorted[i].costAUD) totalCost += sorted[i].costAUD!;
+            fillCount++;
+          }
+        }
+
+        if (fillCount > 0 && totalKm > 0) {
+          setFuelStats({
+            totalLiters,
+            totalCost,
+            totalKmBetweenFills: totalKm,
+            fillCount,
+            avgKmPerTank: totalKm / fillCount,
+            avgLitersPer100km: totalLiters > 0 ? (totalLiters / totalKm) * 100 : 0,
+            avgCostPerKm: totalCost > 0 ? totalCost / totalKm : 0,
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load fuel stats:', e);
+      }
+    };
+    loadFuelStats();
   }, [user.id]);
 
   // Get today's date
@@ -146,9 +209,22 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
       const prefs = await getUserPreferences(user.id);
       let currentOdometer = prefs.currentOdometer || 0;
 
+      // If no odometer set, try to get it from default vehicle
+      if (currentOdometer === 0) {
+        try {
+          const vehicles = await getVehicles(user.id);
+          const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+          if (defaultVehicle) {
+            currentOdometer = defaultVehicle.currentOdometer || defaultVehicle.startOdometer || 0;
+          }
+        } catch (e) {
+          console.error('Failed to get vehicle odometer for CSV:', e);
+        }
+      }
+
       const headers = [
         'Date', 'Start Time', 'End Time', 'Start Odometer (km)', 'End Odometer (km)',
-        'Distance (km)', 'Origin', 'Destination', 'Purpose', 'Vehicle'
+        'Distance (km)', 'Duration (min)', 'Origin', 'Destination', 'Purpose', 'Vehicle'
       ];
 
       const csvRows = [headers.join(',')];
@@ -160,24 +236,64 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
         currentOdometer = endOdo;
 
         const row = [
-          log.date, log.startTime, log.endTime, startOdo.toFixed(1), endOdo.toFixed(1),
-          log.distanceKm.toFixed(1), `"${log.origin.replace(/"/g, '""')}"`,
-          `"${log.destination.replace(/"/g, '""')}"`, 'Business - Courier Delivery', log.vehicleString
+          log.date,
+          log.startTime,
+          log.endTime,
+          startOdo.toFixed(1),
+          endOdo.toFixed(1),
+          log.distanceKm.toFixed(1),
+          log.durationMinutes.toString(),
+          `"${log.origin.replace(/"/g, '""')}"`,
+          `"${log.destination.replace(/"/g, '""')}"`,
+          'Business - Courier Delivery',
+          `"${(log.vehicleString || '').replace(/"/g, '""')}"`
         ];
         csvRows.push(row.join(','));
       });
 
       const csvContent = csvRows.join('\n');
+      const fileName = `SubRoute_Logbook_${new Date().toISOString().split('T')[0]}.csv`;
+
+      // Try Web Share API first (works well on mobile)
+      if (navigator.share && navigator.canShare) {
+        try {
+          const file = new File([csvContent], fileName, { type: 'text/csv' });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: 'SubRoute Logbook Export',
+            });
+            return;
+          }
+        } catch (shareError) {
+          // Share cancelled or not supported - fall through to download
+          if ((shareError as Error).name === 'AbortError') return;
+          console.log('Share API failed, falling back to download');
+        }
+      }
+
+      // Fallback: Blob URL download (works on desktop and most mobile browsers)
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
 
       link.setAttribute('href', url);
-      link.setAttribute('download', `SubRoute_Logbook_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', fileName);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url); // Clean up memory
+
+      // If download didn't trigger (iOS Safari), open in new tab
+      setTimeout(() => {
+        // Check if we're on iOS and download may not have triggered
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          window.open(url, '_blank');
+        }
+      }, 500);
+
     } catch (error) {
       console.error('Error exporting CSV:', error);
       alert('Failed to export CSV. Please try again.');
@@ -317,7 +433,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto w-full px-4 py-6 flex-1">
-        {viewMode === 'today' && <TodaySummaryView summary={getTodaySummary()} allLogs={logs} />}
+        {viewMode === 'today' && <TodaySummaryView summary={getTodaySummary()} allLogs={logs} fuelStats={fuelStats} />}
         {viewMode === 'individual' && <IndividualTripsView logs={logs} />}
         {viewMode === 'daily' && <DailySummaryView summaries={getDailySummaries()} />}
         {viewMode === 'weekly' && <WeeklySummaryView weeks={getWeeklySummaries()} />}
@@ -328,7 +444,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 };
 
 // Today's Summary View (Default) - Big stats focused
-const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLog[] }> = ({ summary, allLogs }) => {
+const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLog[]; fuelStats: FuelEconomyStats | null }> = ({ summary, allLogs, fuelStats }) => {
   const todayTrips = summary?.trips || [];
   const totalDistance = summary?.totalDistance || 0;
   const totalTrips = summary?.totalTrips || 0;
@@ -459,6 +575,44 @@ const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLo
           </svg>
           <h3 className="mt-4 text-lg font-medium text-gray-900">No trips today yet</h3>
           <p className="mt-1 text-sm text-gray-500">Start navigating to log your first trip</p>
+        </div>
+      )}
+
+      {/* Fuel Economy Stats */}
+      {fuelStats && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 bg-gradient-to-r from-orange-50 to-white border-b border-gray-100">
+            <h3 className="font-semibold text-gray-800 flex items-center space-x-2">
+              <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
+              <span>Fuel Economy</span>
+            </h3>
+          </div>
+          <div className="grid grid-cols-3 gap-4 p-4">
+            <div className="text-center">
+              <p className="text-xs text-gray-500">Avg km/tank</p>
+              <p className="text-xl font-bold text-orange-600">{fuelStats.avgKmPerTank.toFixed(0)}</p>
+              <p className="text-xs text-gray-400">km</p>
+            </div>
+            {fuelStats.avgLitersPer100km > 0 && (
+              <div className="text-center">
+                <p className="text-xs text-gray-500">Consumption</p>
+                <p className="text-xl font-bold text-orange-600">{fuelStats.avgLitersPer100km.toFixed(1)}</p>
+                <p className="text-xs text-gray-400">L/100km</p>
+              </div>
+            )}
+            {fuelStats.avgCostPerKm > 0 && (
+              <div className="text-center">
+                <p className="text-xs text-gray-500">Fuel Cost</p>
+                <p className="text-xl font-bold text-orange-600">${fuelStats.avgCostPerKm.toFixed(2)}</p>
+                <p className="text-xs text-gray-400">per km</p>
+              </div>
+            )}
+          </div>
+          <div className="px-4 pb-3 text-center">
+            <p className="text-xs text-gray-400">Based on {fuelStats.fillCount} fill-ups over {fuelStats.totalKmBetweenFills.toFixed(0)} km</p>
+          </div>
         </div>
       )}
 

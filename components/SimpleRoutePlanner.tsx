@@ -12,6 +12,8 @@ import {
   deleteFavoriteAddress,
   subscribeToFavoriteAddresses,
   saveFuelStop,
+  updateVehicleOdometer,
+  getTripLogs,
   type SavedAddress,
   type FavoriteAddress
 } from '../lib/firestore';
@@ -92,12 +94,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const wakeLockRef = useRef<any>(null); // Wake Lock API to prevent screen sleep during tracking
   const isLoggingTrip = useRef<boolean>(false); // MUTEX: Prevent duplicate trip logging
 
-  // PERSIST ROUTE STATE - Load on mount
+  // PERSIST ROUTE STATE - Load on mount (auto-clear if from previous day)
   useEffect(() => {
     try {
       const savedRoute = localStorage.getItem(`subroute_active_route_${user.id}`);
       if (savedRoute) {
-        const { stops: savedStops, routeDetails: savedDetails, routeStartTime: savedTime, depotStart, activeTrip: savedActiveTrip, completedStops: savedCompleted } = JSON.parse(savedRoute);
+        const parsed = JSON.parse(savedRoute);
+        const { stops: savedStops, routeDetails: savedDetails, routeStartTime: savedTime, depotStart, activeTrip: savedActiveTrip, completedStops: savedCompleted, savedDate } = parsed;
+
+        // Auto-clear if saved route is from a previous day
+        const today = new Date().toISOString().split('T')[0];
+        if (savedDate && savedDate !== today) {
+          console.log('[SubRoute] Route from previous day detected (' + savedDate + '), auto-clearing');
+          localStorage.removeItem(`subroute_active_route_${user.id}`);
+          return;
+        }
+
         if (savedStops && savedStops.length > 0) {
           setStops(savedStops);
           setRouteDetails(savedDetails || null);
@@ -127,7 +139,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
           routeStartTime,
           depotStart: routeBegunFromDepot,
           activeTrip,
-          completedStops: Array.from(completedStops)
+          completedStops: Array.from(completedStops),
+          savedDate: new Date().toISOString().split('T')[0], // Track date for auto-clear
         };
         localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
         console.log('[SubRoute] Route state saved:', { activeTrip: activeTrip?.destination, completedCount: completedStops.size });
@@ -1059,14 +1072,30 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       }
     }
 
-    // Get default vehicle's current odometer
+    // Auto-calculate odometer: start from vehicle's base odometer + total logged km
     try {
       const vehicles = await getVehicles(user.id);
       const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
-      if (defaultVehicle && defaultVehicle.currentOdometer) {
-        setFuelStopOdometer(defaultVehicle.currentOdometer.toString());
-      } else if (defaultVehicle && defaultVehicle.startOdometer) {
-        setFuelStopOdometer(defaultVehicle.startOdometer.toString());
+      if (defaultVehicle) {
+        // If vehicle has a current odometer (updated from last fuel stop), use that
+        if (defaultVehicle.currentOdometer) {
+          // Add distance from trips logged AFTER the odometer was last set
+          const trips = await getTripLogs(user.id);
+          // Sum trips that happened after the vehicle's odometer was last updated
+          // Simple approach: current odometer + today's logged km
+          const today = new Date().toISOString().split('T')[0];
+          const todayKm = trips
+            .filter(t => t.date === today)
+            .reduce((sum, t) => sum + t.distanceKm, 0);
+          const estimatedOdometer = defaultVehicle.currentOdometer + todayKm;
+          setFuelStopOdometer(Math.round(estimatedOdometer).toString());
+        } else if (defaultVehicle.startOdometer) {
+          // No current odometer set yet - use start + all trip km
+          const trips = await getTripLogs(user.id);
+          const totalKm = trips.reduce((sum, t) => sum + t.distanceKm, 0);
+          const estimatedOdometer = defaultVehicle.startOdometer + totalKm;
+          setFuelStopOdometer(Math.round(estimatedOdometer).toString());
+        }
       }
     } catch (e) {
       console.error('Failed to load vehicle odometer', e);
@@ -1161,7 +1190,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       try {
         await saveFuelStop(user.id, defaultVehicle.id, fuelStop);
-        alert('Fuel stop logged successfully!');
+
+        // Update vehicle's current odometer to the new reading
+        try {
+          await updateVehicleOdometer(user.id, defaultVehicle.id, fuelStop.odometerReading);
+          console.log('[SubRoute] Vehicle odometer updated to:', fuelStop.odometerReading);
+        } catch (odoErr) {
+          console.error('[SubRoute] Failed to update vehicle odometer:', odoErr);
+        }
+
+        alert('Fuel stop logged! Odometer updated to ' + fuelStop.odometerReading + ' km');
       } catch (firebaseError) {
         // Firebase failed - save to localStorage backup
         console.error('[SubRoute] Firebase fuel stop save failed, backing up locally:', firebaseError);

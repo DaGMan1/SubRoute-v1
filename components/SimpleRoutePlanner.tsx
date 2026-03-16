@@ -63,6 +63,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [favoriteName, setFavoriteName] = useState('');
   const [preferredNavApp, setPreferredNavApp] = useState<'google' | 'waze'>('google');
 
+  // Mid-route navigation modal state
+  const [showMidRouteModal, setShowMidRouteModal] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<{ stop: Stop; navApp: 'google' | 'waze' } | null>(null);
+
   // Fuel stop modal state
   const [showFuelStopModal, setShowFuelStopModal] = useState(false);
   const [fuelStopLocation, setFuelStopLocation] = useState('');
@@ -172,23 +176,59 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     loadUserPrefs();
   }, [user.id]);
 
-  // Load address history
+  // Load address history with offline caching
   useEffect(() => {
     const loadHistory = async () => {
+      const cacheKey = `subroute_address_history_${user.id}`;
+
+      // 1. Load from localStorage first (offline support)
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const cachedHistory = JSON.parse(cached);
+          setAddressHistory(cachedHistory);
+          console.log('[SubRoute] Loaded', cachedHistory.length, 'addresses from offline cache');
+        }
+      } catch (error) {
+        console.error('Error loading cached history:', error);
+      }
+
+      // 2. Fetch from Firestore and update cache (online)
       try {
         const history = await getAddressHistory(user.id, 50);
         setAddressHistory(history);
+        // Save to localStorage for offline access
+        localStorage.setItem(cacheKey, JSON.stringify(history));
+        console.log('[SubRoute] Synced', history.length, 'addresses from Firestore to cache');
       } catch (error) {
-        console.error('Error loading address history:', error);
+        console.error('Error loading address history from Firestore:', error);
+        // If offline, cached data is already loaded above
       }
     };
     loadHistory();
   }, [user.id]);
 
-  // Subscribe to favorites
+  // Subscribe to favorites with offline caching
   useEffect(() => {
+    const cacheKey = `subroute_favorites_${user.id}`;
+
+    // Load from localStorage first (offline support)
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const cachedFavorites = JSON.parse(cached);
+        setFavorites(cachedFavorites);
+        console.log('[SubRoute] Loaded', cachedFavorites.length, 'favorites from offline cache');
+      }
+    } catch (error) {
+      console.error('Error loading cached favorites:', error);
+    }
+
+    // Subscribe to Firestore updates and cache them
     const unsubscribe = subscribeToFavoriteAddresses(user.id, (favs) => {
       setFavorites(favs);
+      localStorage.setItem(cacheKey, JSON.stringify(favs));
+      console.log('[SubRoute] Synced', favs.length, 'favorites to cache');
     });
     return () => unsubscribe();
   }, [user.id]);
@@ -366,17 +406,35 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
           const address = place.formatted_address || place.name || 'Unknown';
 
-          // Save to history
+          // Save to history and check for auto-promote to favorites
           try {
             const savedAddress: SavedAddress = {
               id: `${location.lat}_${location.lng}`,
               address,
               location,
             };
-            await saveAddressToHistory(user.id, savedAddress);
-            // Reload history
+            const useCount = await saveAddressToHistory(user.id, savedAddress);
+
+            // Auto-promote to favorites after 4 visits (if not already favorited)
+            if (useCount >= 4) {
+              const isAlreadyFavorite = favorites.some(fav => fav.id === savedAddress.id);
+              if (!isAlreadyFavorite) {
+                console.log('[SubRoute] Auto-promoting to favorites:', address, 'visits:', useCount);
+                const autoFavorite: FavoriteAddress = {
+                  ...savedAddress,
+                  name: `📍 ${address.split(',')[0]}`, // Use first part of address
+                  createdAt: Date.now(),
+                };
+                await saveFavoriteAddress(user.id, autoFavorite);
+                // Show toast notification (optional - can be styled better later)
+                alert(`🌟 Added to favorites: ${address.split(',')[0]} (${useCount} visits)`);
+              }
+            }
+
+            // Reload history and update offline cache
             const history = await getAddressHistory(user.id, 50);
             setAddressHistory(history);
+            localStorage.setItem(`subroute_address_history_${user.id}`, JSON.stringify(history));
           } catch (error) {
             console.error('Error saving address to history:', error);
           }
@@ -706,8 +764,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   };
 
   // Log completed trip when arrival detected
-  const logCompletedTrip = async () => {
-    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isLogging:', isLoggingTrip.current);
+  // isPartialTrip = true when user switches destinations mid-route (uses current GPS as destination)
+  const logCompletedTrip = async (isPartialTrip: boolean = false) => {
+    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isPartialTrip:', isPartialTrip, 'isLogging:', isLoggingTrip.current);
 
     // MUTEX CHECK: If already logging, skip to prevent duplicates
     if (isLoggingTrip.current) {
@@ -735,10 +794,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setActiveTrip(null);
     console.log('[SubRoute] Active trip state cleared');
 
+    // For partial trips, use current GPS position as actual destination
+    let actualDestinationLocation = tripToLog.destinationLocation;
+    let actualDestinationAddress = tripToLog.destination;
+
+    if (isPartialTrip && lastGpsPosition.current) {
+      actualDestinationLocation = lastGpsPosition.current;
+      actualDestinationAddress = 'Current Position (partial trip)';
+      console.log('[SubRoute] Partial trip - using current GPS as destination:', actualDestinationLocation);
+    }
+
     // Get ACTUAL road distance from Google Directions API (not GPS tracking)
     let distanceKm = 0;
     try {
-      distanceKm = await getRouteDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+      distanceKm = await getRouteDistance(tripToLog.originLocation, actualDestinationLocation);
       console.log('[SubRoute] Route distance from Google:', distanceKm, 'km');
     } catch (e) {
       console.error('[SubRoute] Failed to get route distance:', e);
@@ -746,7 +815,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
     // Fallback: if Google Directions failed, use straight-line distance as minimum
     if (distanceKm === 0) {
-      const straightLine = calculateDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+      const straightLine = calculateDistance(tripToLog.originLocation, actualDestinationLocation);
       distanceKm = straightLine * 1.3; // Add 30% for road distance approximation
       console.log('[SubRoute] Using straight-line fallback:', distanceKm.toFixed(1), 'km');
     }
@@ -763,7 +832,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.error('Failed to load vehicle info', e);
     }
 
-    // Create trip log with Google Directions distance
+    // Create trip log with actual destination (original or current GPS for partial trips)
     const tripLog: TripLog = {
       id: Date.now().toString(),
       timestamp: endTime,
@@ -771,7 +840,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       startTime: new Date(tripToLog.startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       origin: tripToLog.origin,
-      destination: tripToLog.destination,
+      destination: isPartialTrip ? `${tripToLog.destination} (partial)` : tripToLog.destination,
       distanceKm: Math.round(distanceKm * 10) / 10, // Round to 1 decimal
       vehicleString,
       durationMinutes,
@@ -783,17 +852,22 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       await saveTripLog(user.id, tripLog);
       console.log('[SubRoute] ✅ Trip logged successfully to Firestore!', tripLog);
 
-      // Mark this stop as completed by ID (not address, so same address can be visited multiple times)
-      const newCompletedStops = new Set(completedStops);
-      newCompletedStops.add(tripToLog.destinationStopId);
-      setCompletedStops(newCompletedStops);
-      console.log('[SubRoute] Stop marked as completed:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
+      // For partial trips, don't mark stop as completed (they didn't actually arrive)
+      // For complete trips, mark stop as completed
+      if (!isPartialTrip) {
+        const newCompletedStops = new Set(completedStops);
+        newCompletedStops.add(tripToLog.destinationStopId);
+        setCompletedStops(newCompletedStops);
+        console.log('[SubRoute] Stop marked as completed:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
+      } else {
+        console.log('[SubRoute] Partial trip - stop NOT marked as completed');
+      }
 
-      // Save the destination location and address as the starting point for next trip
-      lastGpsPosition.current = tripToLog.destinationLocation;
-      lastDestinationAddress.current = tripToLog.destination;
-      console.log('[SubRoute] Last GPS position updated to destination:', tripToLog.destinationLocation);
-      console.log('[SubRoute] Last destination address saved:', tripToLog.destination);
+      // Save the actual destination location and address as the starting point for next trip
+      lastGpsPosition.current = actualDestinationLocation;
+      lastDestinationAddress.current = isPartialTrip ? actualDestinationAddress : tripToLog.destination;
+      console.log('[SubRoute] Last GPS position updated:', actualDestinationLocation);
+      console.log('[SubRoute] Last destination address saved:', lastDestinationAddress.current);
       console.log('[SubRoute] ✅ Trip logging complete, ready for next trip');
 
       // RELEASE MUTEX after successful logging
@@ -856,15 +930,29 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
-    // If there's already an active trip, capture its data BEFORE firing background log
-    // This prevents the new trip from using stale origin data
+    // If there's already an active trip to a DIFFERENT destination, show mid-route modal
+    if (activeTrip && activeTrip.destinationStopId !== stop.id) {
+      console.log('[SubRoute] Active trip detected to:', activeTrip.destination, '- showing mid-route modal');
+      setPendingNavigation({ stop, navApp });
+      setShowMidRouteModal(true);
+      return;
+    }
+
+    // Proceed with navigation (either no active trip, or navigating to same destination)
+    proceedWithNavigation(stop, navApp, false);
+  };
+
+  // Proceed with navigation (called directly or after mid-route modal choice)
+  const proceedWithNavigation = (stop: Stop, navApp: 'google' | 'waze', skipCurrentTrip: boolean) => {
     let previousTripDestination: string | null = null;
     let previousTripDestinationLocation: google.maps.LatLngLiteral | null = null;
-    if (activeTrip) {
+
+    // If skipping current trip, log it as partial trip (uses current GPS as destination)
+    if (skipCurrentTrip && activeTrip) {
       previousTripDestination = activeTrip.destination;
       previousTripDestinationLocation = activeTrip.destinationLocation;
-      console.log('[SubRoute] Active trip running to:', activeTrip.destination, '- logging in background');
-      logCompletedTrip(); // Fire and forget - don't await
+      console.log('[SubRoute] Skipping current trip to:', activeTrip.destination, '- logging partial journey');
+      logCompletedTrip(true); // Pass true for isPartialTrip
     }
 
     // Determine origin location: use previous trip's destination, then lastGpsPosition, then currentLocation
@@ -1260,6 +1348,39 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   }, [showDepotModal]);
 
+  // Mid-route modal handlers
+  const handleCompleteCurrentFirst = async () => {
+    if (!activeTrip || !pendingNavigation) return;
+
+    // Close modal
+    setShowMidRouteModal(false);
+
+    // User will manually complete current trip when they arrive
+    // Just close the modal and do nothing - they can tap "Done" on current stop
+    alert(`Complete your trip to ${activeTrip.destination} first, then navigate to ${pendingNavigation.stop.address}`);
+
+    // Clear pending navigation
+    setPendingNavigation(null);
+  };
+
+  const handleSkipToNewDestination = () => {
+    if (!pendingNavigation) return;
+
+    // Close modal
+    setShowMidRouteModal(false);
+
+    // Proceed with navigation, skipping current trip (will log partial journey)
+    proceedWithNavigation(pendingNavigation.stop, pendingNavigation.navApp, true);
+
+    // Clear pending navigation
+    setPendingNavigation(null);
+  };
+
+  const handleCancelMidRoute = () => {
+    setShowMidRouteModal(false);
+    setPendingNavigation(null);
+  };
+
   return (
     <div className="flex h-[calc(100vh-64px)] bg-gray-50 relative">
       {/* Left Sidebar - Stops List */}
@@ -1548,6 +1669,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                               >
                                 <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
                               </button>
+                              {/* Always show GO button for pending stops (allows mid-route navigation) */}
                               {!isActiveDestination && (
                                 <button
                                   onClick={() => startNavigationToStop(stop, preferredNavApp)}
@@ -1566,11 +1688,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                               <span>DEPOT</span>
                             </span>
                           )}
-                          {isActiveDestination && !isCompleted && (
-                            <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white animate-pulse">
-                              <span>EN ROUTE</span>
-                            </span>
-                          )}
                         </div>
                       </div>
                       {!isCompleted && (
@@ -1585,31 +1702,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       )}
                     </div>
 
-                    {/* Manual complete button - only shows when en route to this stop */}
+                    {/* Streamlined EN ROUTE button - tap to complete */}
                     {!isCompleted && isActiveDestination && (
-                      <div className="px-2 mt-1 flex space-x-2">
+                      <div className="px-2 mt-1.5">
                         <button
                           onClick={() => manualCompleteStop(stop)}
-                          className="flex-1 px-3 py-2.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center justify-center space-x-2 min-h-[44px]"
+                          className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-bold hover:from-purple-700 hover:to-blue-700 flex items-center justify-center space-x-2 shadow-md animate-pulse min-h-[50px]"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                           </svg>
-                          <span>Done</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            // Skip this trip - clear active trip without logging, keep stop for later
-                            console.log('[SubRoute] Skipping trip to:', stop.address);
-                            setActiveTrip(null);
-                            persistRouteStateSync({ activeTrip: null });
-                          }}
-                          className="px-3 py-2.5 bg-gray-500 text-white rounded-lg text-xs font-bold hover:bg-gray-600 flex items-center justify-center space-x-2 min-h-[44px]"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                          </svg>
-                          <span>Skip</span>
+                          <span>EN ROUTE - TAP WHEN DONE</span>
                         </button>
                       </div>
                     )}
@@ -1965,6 +2068,64 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   className={`flex-1 px-4 py-2 text-white rounded-lg font-medium ${fuelStopSaving ? 'bg-orange-400 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'}`}
                 >
                   {fuelStopSaving ? 'Saving...' : 'Log Fuel Stop'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mid-Route Navigation Modal */}
+      {showMidRouteModal && activeTrip && pendingNavigation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                  </svg>
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">You're Already En Route</h2>
+                <p className="text-sm text-gray-600">
+                  You're currently navigating to:
+                </p>
+                <p className="text-base font-semibold text-gray-900 mt-2 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  📍 {activeTrip.destination}
+                </p>
+                <p className="text-sm text-gray-600 mt-3">
+                  What would you like to do?
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  onClick={handleCompleteCurrentFirst}
+                  className="w-full px-4 py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm flex flex-col items-center justify-center space-y-1 border-2 border-green-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                  <span>Complete Current Trip First</span>
+                  <span className="text-xs text-green-100 font-normal">Tap "Done" when you arrive</span>
+                </button>
+
+                <button
+                  onClick={handleSkipToNewDestination}
+                  className="w-full px-4 py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-semibold text-sm flex flex-col items-center justify-center space-y-1 border-2 border-orange-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                  </svg>
+                  <span>Switch to New Destination</span>
+                  <span className="text-xs text-orange-100 font-normal">Auto-log partial trip & go to: {pendingNavigation.stop.address.substring(0, 30)}...</span>
+                </button>
+
+                <button
+                  onClick={handleCancelMidRoute}
+                  className="w-full px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm"
+                >
+                  Cancel
                 </button>
               </div>
             </div>

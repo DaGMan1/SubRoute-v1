@@ -106,7 +106,8 @@ export const getDefaultVehicle = async (userId: string): Promise<Vehicle | null>
   const snapshot = await getDocs(q);
 
   if (snapshot.empty) return null;
-  return snapshot.docs[0].data() as Vehicle;
+  const firstDoc = snapshot.docs[0];
+  return firstDoc ? firstDoc.data() as Vehicle : null;
 };
 
 // ============================================
@@ -170,15 +171,20 @@ export interface FavoriteAddress extends SavedAddress {
   createdAt: number;
 }
 
-export const saveAddressToHistory = async (userId: string, address: SavedAddress): Promise<void> => {
+export const saveAddressToHistory = async (userId: string, address: SavedAddress): Promise<number> => {
   const historyRef = doc(db, 'users', userId, 'addressHistory', address.id);
+  const existingDoc = await getDoc(historyRef);
+  const newUseCount = existingDoc.exists()
+    ? ((existingDoc.data()?.useCount || 0) + 1)
+    : 1;
+
   await setDoc(historyRef, {
     ...address,
     lastUsed: Date.now(),
-    useCount: (await getDoc(historyRef)).exists()
-      ? ((await getDoc(historyRef)).data()?.useCount || 0) + 1
-      : 1
+    useCount: newUseCount
   });
+
+  return newUseCount; // Return use count for auto-promote logic
 };
 
 export const getAddressHistory = async (userId: string, limit: number = 50): Promise<SavedAddress[]> => {

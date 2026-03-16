@@ -1,15 +1,23 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import type { User } from './types';
 import { Auth } from './components/Auth';
-import { SimpleRoutePlanner } from './components/SimpleRoutePlanner';
-import { TripLogbook } from './components/TripLogbook';
-import { Settings } from './components/Settings';
+import { ErrorBoundary } from './components/ErrorBoundary';
+
+const SimpleRoutePlanner = lazy(() => import('./components/SimpleRoutePlanner').then(m => ({ default: m.SimpleRoutePlanner })));
+const TripLogbook = lazy(() => import('./components/TripLogbook').then(m => ({ default: m.TripLogbook })));
+const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
 
 type AppView = 'planner' | 'logbook' | 'settings';
+
+const PageLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-blue"></div>
+  </div>
+);
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -66,9 +74,9 @@ const App: React.FC = () => {
       }
   };
 
-  const handleNavigate = (view: AppView) => {
-      setCurrentView(view);
-  };
+  // const handleNavigate = (view: AppView) => {
+  //     setCurrentView(view);
+  // };
 
   if (loading) {
       return (
@@ -108,7 +116,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="bg-brand-gray-100 min-h-screen flex flex-col">
+    <ErrorBoundary>
+      <div className="bg-brand-gray-100 min-h-screen flex flex-col">
       <header className="bg-white shadow-sm sticky top-0 z-40 flex-shrink-0">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex justify-between items-center py-3">
@@ -181,17 +190,20 @@ const App: React.FC = () => {
       </header>
       
       <div className="flex-grow relative">
-        {currentView === 'planner' && (
-          <SimpleRoutePlanner user={currentUser} />
-        )}
-        {currentView === 'logbook' && (
-          <TripLogbook user={currentUser} />
-        )}
-        {currentView === 'settings' && (
-          <Settings user={currentUser} />
-        )}
+        <Suspense fallback={<PageLoader />}>
+          {currentView === 'planner' && (
+            <SimpleRoutePlanner user={currentUser} />
+          )}
+          {currentView === 'logbook' && (
+            <TripLogbook user={currentUser} />
+          )}
+          {currentView === 'settings' && (
+            <Settings user={currentUser} />
+          )}
+        </Suspense>
       </div>
     </div>
+    </ErrorBoundary>
   );
 };
 

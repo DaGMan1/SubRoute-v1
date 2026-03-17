@@ -69,6 +69,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [showMidRouteModal, setShowMidRouteModal] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ stop: Stop; navApp: 'google' | 'waze' } | null>(null);
 
+  // Voice search results (from AutocompleteService - works programmatically unlike the widget)
+  const [voiceSearchResults, setVoiceSearchResults] = useState<google.maps.places.AutocompletePrediction[]>([]);
+  const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
+  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null);
+
   // Fuel stop modal state
   const [showFuelStopModal, setShowFuelStopModal] = useState(false);
   const [fuelStopLocation, setFuelStopLocation] = useState('');
@@ -394,6 +399,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       // Initialize Traffic Layer
       trafficLayerRef.current = new google.maps.TrafficLayer();
+
+      // Initialize AutocompleteService and PlacesService for voice search
+      autocompleteServiceRef.current = new google.maps.places.AutocompleteService();
+      placesServiceRef.current = new google.maps.places.PlacesService(googleMapRef.current);
 
       // Initialize Autocomplete on search input
       if (searchInputRef.current) {
@@ -1330,21 +1339,39 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
+      console.log('[SubRoute Voice] Transcript:', transcript);
 
-      // Set the search value
+      // Set the search value in the input
       setSearchValue(transcript);
       if (searchInputRef.current) {
         searchInputRef.current.value = transcript;
-
-        // Trigger Google Places autocomplete search
-        const inputEvent = new Event('input', { bubbles: true });
-        searchInputRef.current.dispatchEvent(inputEvent);
-
-        // Focus the input to show autocomplete suggestions
-        searchInputRef.current.focus();
       }
 
       setIsListening(false);
+
+      // Use AutocompleteService to search (works programmatically, unlike the widget)
+      if (autocompleteServiceRef.current && transcript.trim()) {
+        const request: google.maps.places.AutocompletionRequest = {
+          input: transcript,
+          componentRestrictions: { country: 'au' },
+        };
+
+        // Add location bias if we have current location
+        if (currentLocation) {
+          request.location = new google.maps.LatLng(currentLocation.lat, currentLocation.lng);
+          request.radius = 50000; // 50km bias radius
+        }
+
+        autocompleteServiceRef.current.getPlacePredictions(request, (predictions, status) => {
+          if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
+            console.log('[SubRoute Voice] Got', predictions.length, 'predictions');
+            setVoiceSearchResults(predictions);
+          } else {
+            console.warn('[SubRoute Voice] Autocomplete failed:', status);
+            setVoiceSearchResults([]);
+          }
+        });
+      }
     };
 
     recognition.onerror = (event: any) => {
@@ -1385,6 +1412,69 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       });
     }
   }, [showDepotModal]);
+
+  // Handle selecting a voice search result
+  const selectVoiceResult = (prediction: google.maps.places.AutocompletePrediction) => {
+    if (!placesServiceRef.current) return;
+
+    placesServiceRef.current.getDetails(
+      {
+        placeId: prediction.place_id,
+        fields: ['formatted_address', 'geometry', 'name'],
+      },
+      async (place, status) => {
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !place || !place.geometry?.location) {
+          console.error('[SubRoute Voice] Failed to get place details:', status);
+          return;
+        }
+
+        const location = {
+          lat: place.geometry.location.lat(),
+          lng: place.geometry.location.lng(),
+        };
+        const address = place.formatted_address || place.name || 'Unknown';
+
+        // Save to history
+        try {
+          const savedAddress: SavedAddress = {
+            id: `${location.lat}_${location.lng}`,
+            address,
+            location,
+          };
+          const useCount = await saveAddressToHistory(user.id, savedAddress);
+
+          // Auto-promote to favorites after 4 visits
+          if (useCount >= 4) {
+            const isAlreadyFavorite = favorites.some(fav => fav.id === savedAddress.id);
+            if (!isAlreadyFavorite) {
+              const autoFavorite: FavoriteAddress = {
+                ...savedAddress,
+                name: `📍 ${address.split(',')[0]}`,
+                createdAt: Date.now(),
+              };
+              await saveFavoriteAddress(user.id, autoFavorite);
+            }
+          }
+
+          const history = await getAddressHistory(user.id, 50);
+          setAddressHistory(history);
+          localStorage.setItem(`subroute_address_history_${user.id}`, JSON.stringify(history));
+        } catch (error) {
+          console.error('Error saving address to history:', error);
+        }
+
+        // Set as pending stop
+        setPendingStop({ address, location });
+
+        // Clear search and voice results
+        setSearchValue('');
+        setVoiceSearchResults([]);
+        if (searchInputRef.current) {
+          searchInputRef.current.value = '';
+        }
+      }
+    );
+  };
 
   // Mid-route modal handlers
   const handleCompleteCurrentFirst = async () => {
@@ -1455,8 +1545,40 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </svg>
             </button>
 
+            {/* Voice Search Results Dropdown */}
+            {voiceSearchResults.length > 0 && (
+              <div className="absolute z-20 w-full mt-1 bg-white border-2 border-blue-400 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+                <div className="px-3 py-2 border-b border-blue-200 bg-blue-50 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-blue-700 uppercase flex items-center space-x-1">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
+                    <span>Voice Search Results</span>
+                  </p>
+                  <button
+                    onClick={() => setVoiceSearchResults([])}
+                    className="text-blue-400 hover:text-blue-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                  </button>
+                </div>
+                {voiceSearchResults.map((prediction) => (
+                  <button
+                    key={prediction.place_id}
+                    onClick={() => selectVoiceResult(prediction)}
+                    className="w-full text-left px-3 py-3 border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition-colors"
+                  >
+                    <p className="text-sm font-medium text-gray-900">{prediction.structured_formatting.main_text}</p>
+                    <p className="text-xs text-gray-500">{prediction.structured_formatting.secondary_text}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Address History Dropdown */}
-            {showHistory && addressHistory.length > 0 && (
+            {showHistory && addressHistory.length > 0 && voiceSearchResults.length === 0 && (
               <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
                 <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
                   <p className="text-xs font-semibold text-gray-600 uppercase">Recent Addresses</p>

@@ -65,10 +65,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [favoriteName, setFavoriteName] = useState('');
   const [preferredNavApp, setPreferredNavApp] = useState<'google' | 'waze'>('google');
 
-  // Mid-route navigation modal state
-  const [showMidRouteModal, setShowMidRouteModal] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<{ stop: Stop; navApp: 'google' | 'waze' } | null>(null);
-
   // Voice search results (from AutocompleteService - works programmatically unlike the widget)
   const [voiceSearchResults, setVoiceSearchResults] = useState<google.maps.places.AutocompletePrediction[]>([]);
   const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
@@ -949,42 +945,19 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   };
 
   // Start navigation to a specific stop (point-to-point)
+  // Start navigation to a specific stop - point-to-point, zero friction
   const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
-    // If there's already an active trip to a DIFFERENT destination, show mid-route modal
+    // If there's an active trip to a DIFFERENT destination, silently log it as partial
     if (activeTrip && activeTrip.destinationStopId !== stop.id) {
-      console.log('[SubRoute] Active trip detected to:', activeTrip.destination, '- showing mid-route modal');
-      setPendingNavigation({ stop, navApp });
-      setShowMidRouteModal(true);
-      return;
+      console.log('[SubRoute] Active trip to:', activeTrip.destination, '- silently logging partial trip');
+      logCompletedTrip(true); // Silent partial log, no prompts
     }
 
-    // Proceed with navigation (either no active trip, or navigating to same destination)
-    proceedWithNavigation(stop, navApp, false);
-  };
-
-  // Proceed with navigation (called directly or after mid-route modal choice)
-  const proceedWithNavigation = (stop: Stop, navApp: 'google' | 'waze', skipCurrentTrip: boolean) => {
-    let previousTripDestination: string | null = null;
-    let previousTripDestinationLocation: google.maps.LatLngLiteral | null = null;
-
-    // If skipping current trip, log it as partial trip (uses current GPS as destination)
-    if (skipCurrentTrip && activeTrip) {
-      previousTripDestination = activeTrip.destination;
-      previousTripDestinationLocation = activeTrip.destinationLocation;
-      console.log('[SubRoute] Skipping current trip to:', activeTrip.destination, '- logging partial journey');
-      logCompletedTrip(true); // Pass true for isPartialTrip
-    }
-
-    // Determine origin location: use previous trip's destination, then lastGpsPosition, then currentLocation
-    const origin = previousTripDestinationLocation || lastGpsPosition.current || currentLocation || null;
-
-    // For origin address: use previous trip's destination address (most accurate for midstream change),
-    // then lastDestinationAddress ref, then depot, then fallback
-    const originAddress = previousTripDestination
-      ? previousTripDestination
-      : (lastDestinationAddress.current || depotAddress?.address || 'Current Location');
+    // Determine origin: use last GPS position (updated by logCompletedTrip above), or current location
+    const origin = lastGpsPosition.current || currentLocation || null;
+    const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
 
     // Start tracking this NEW trip
     const newTrip = {
@@ -1474,39 +1447,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         }
       }
     );
-  };
-
-  // Mid-route modal handlers
-  const handleCompleteCurrentFirst = async () => {
-    if (!activeTrip || !pendingNavigation) return;
-
-    // Close modal
-    setShowMidRouteModal(false);
-
-    // User will manually complete current trip when they arrive
-    // Just close the modal and do nothing - they can tap "Done" on current stop
-    alert(`Complete your trip to ${activeTrip.destination} first, then navigate to ${pendingNavigation.stop.address}`);
-
-    // Clear pending navigation
-    setPendingNavigation(null);
-  };
-
-  const handleSkipToNewDestination = () => {
-    if (!pendingNavigation) return;
-
-    // Close modal
-    setShowMidRouteModal(false);
-
-    // Proceed with navigation, skipping current trip (will log partial journey)
-    proceedWithNavigation(pendingNavigation.stop, pendingNavigation.navApp, true);
-
-    // Clear pending navigation
-    setPendingNavigation(null);
-  };
-
-  const handleCancelMidRoute = () => {
-    setShowMidRouteModal(false);
-    setPendingNavigation(null);
   };
 
   return (
@@ -2235,63 +2175,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         </div>
       )}
 
-      {/* Mid-Route Navigation Modal */}
-      {showMidRouteModal && activeTrip && pendingNavigation && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="p-6">
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                  </svg>
-                </div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">You're Already En Route</h2>
-                <p className="text-sm text-gray-600">
-                  You're currently navigating to:
-                </p>
-                <p className="text-base font-semibold text-gray-900 mt-2 bg-blue-50 p-3 rounded-lg border border-blue-200">
-                  📍 {activeTrip.destination}
-                </p>
-                <p className="text-sm text-gray-600 mt-3">
-                  What would you like to do?
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <button
-                  onClick={handleCompleteCurrentFirst}
-                  className="w-full px-4 py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm flex flex-col items-center justify-center space-y-1 border-2 border-green-700"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                  </svg>
-                  <span>Complete Current Trip First</span>
-                  <span className="text-xs text-green-100 font-normal">Tap "Done" when you arrive</span>
-                </button>
-
-                <button
-                  onClick={handleSkipToNewDestination}
-                  className="w-full px-4 py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-semibold text-sm flex flex-col items-center justify-center space-y-1 border-2 border-orange-700"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                  </svg>
-                  <span>Switch to New Destination</span>
-                  <span className="text-xs text-orange-100 font-normal">Auto-log partial trip & go to: {pendingNavigation.stop.address.substring(0, 30)}...</span>
-                </button>
-
-                <button
-                  onClick={handleCancelMidRoute}
-                  className="w-full px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

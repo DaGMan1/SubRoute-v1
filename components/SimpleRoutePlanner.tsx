@@ -8,7 +8,6 @@ import {
   saveAddressToHistory,
   getAddressHistory,
   saveFavoriteAddress,
-  getFavoriteAddresses,
   deleteFavoriteAddress,
   subscribeToFavoriteAddresses,
   saveFuelStop,
@@ -38,7 +37,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const directionsServiceRef = useRef<google.maps.DirectionsService | null>(null);
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
 
   const [searchValue, setSearchValue] = useState('');
@@ -77,6 +75,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [fuelStopCost, setFuelStopCost] = useState('');
   const [fuelStopOdometer, setFuelStopOdometer] = useState('');
   const [fuelStopSaving, setFuelStopSaving] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
 
   // Point-to-point trip tracking
   const [activeTrip, setActiveTrip] = useState<{
@@ -604,70 +603,57 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     return R * c;
   };
 
-  // Optimize route order using nearest neighbor algorithm
-  const optimizeStops = (stopsToOptimize: Stop[], startLocation?: google.maps.LatLngLiteral): Stop[] => {
-    if (stopsToOptimize.length <= 1) return stopsToOptimize;
-
-    const optimized: Stop[] = [];
-    const remaining = [...stopsToOptimize];
-
-    // Use starting location if provided (like depot or current location)
-    let currentLoc = startLocation;
-
-    while (remaining.length > 0) {
-      let nearestIndex = 0;
-      let nearestDistance = Infinity;
-
-      remaining.forEach((stop, index) => {
-        const distance = currentLoc
-          ? calculateDistance(currentLoc, stop.location)
-          : 0; // If no current location, just take first
-
-        if (distance < nearestDistance || !currentLoc) {
-          nearestDistance = distance;
-          nearestIndex = index;
-        }
-      });
-
-      const nextStop = remaining.splice(nearestIndex, 1)[0];
-      optimized.push(nextStop);
-      currentLoc = nextStop.location;
+  const optimizeRouteWithDirections = async () => {
+    const uncompleted = stops.filter(s => !completedStops.has(s.id));
+    if (uncompleted.length < 3) {
+      alert('Add at least 3 stops to optimize the route.');
+      return;
+    }
+    if (!directionsServiceRef.current) {
+      alert('Maps not ready yet. Please wait a moment and try again.');
+      return;
     }
 
-    return optimized;
-  };
+    setIsOptimizing(true);
+    try {
+      const origin = currentLocation || uncompleted[0].location;
+      const destinationStop = uncompleted[uncompleted.length - 1];
+      const waypointStops = uncompleted.slice(0, -1);
 
-  const groupPickupsFirst = () => {
-    // Separate stops by type
-    const depots = stops.filter((s) => s.type === 'depot');
-    const pickups = stops.filter((s) => s.type === 'pickup');
-    const deliveries = stops.filter((s) => s.type === 'delivery');
-    const other = stops.filter((s) => !s.type);
+      const result = await new Promise<google.maps.DirectionsResult>((resolve, reject) => {
+        directionsServiceRef.current!.route(
+          {
+            origin,
+            destination: new google.maps.LatLng(destinationStop.location.lat, destinationStop.location.lng),
+            waypoints: waypointStops.map(s => ({
+              location: new google.maps.LatLng(s.location.lat, s.location.lng),
+              stopover: true,
+            })),
+            optimizeWaypoints: true,
+            travelMode: google.maps.TravelMode.DRIVING,
+            region: 'AU',
+          },
+          (res, status) => {
+            if (status === 'OK' && res) resolve(res);
+            else reject(new Error('Directions failed: ' + status));
+          }
+        );
+      });
 
-    // Get starting location (first depot or current location)
-    const startLoc = depots.length > 0 ? depots[0].location : currentLocation || undefined;
+      const optimalOrder = result.routes[0].waypoint_order;
+      const reorderedWaypoints = optimalOrder.map(i => waypointStops[i]);
+      const newUncompleted = [...reorderedWaypoints, destinationStop];
 
-    // Optimize pickups starting from depot/current location
-    const optimizedPickups = pickups.length > 0 ? optimizeStops(pickups, startLoc) : [];
-
-    // Optimize deliveries starting from last pickup (or depot if no pickups)
-    const deliveryStartLoc = optimizedPickups.length > 0
-      ? optimizedPickups[optimizedPickups.length - 1].location
-      : startLoc;
-    const optimizedDeliveries = deliveries.length > 0 ? optimizeStops(deliveries, deliveryStartLoc) : [];
-
-    // Rebuild stops array: depots first, then optimized pickups, then optimized deliveries, then other
-    const newStops = [...depots, ...optimizedPickups, ...optimizedDeliveries, ...other];
-
-    console.log('Optimized route:', {
-      original: stops.length,
-      new: newStops.length,
-      depots: depots.length,
-      pickups: optimizedPickups.length,
-      deliveries: optimizedDeliveries.length
-    });
-
-    setStops(newStops);
+      // Keep completed stops at their original positions, append reordered uncompleted
+      const completedList = stops.filter(s => completedStops.has(s.id));
+      setStops([...completedList, ...newUncompleted]);
+      console.log('[SubRoute] Route optimized via Directions API, order:', optimalOrder);
+    } catch (e) {
+      console.error('[SubRoute] Route optimization failed:', e);
+      alert('Could not optimize route. Check your connection and try again.');
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   // Calculate and display route whenever stops change
@@ -1007,37 +993,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     await logCompletedTrip();
   };
 
-  // Navigate all stops at once using Google Maps multi-waypoint
-  const navigateAllStops = () => {
-    if (stops.length === 0) return;
-
-    // Get uncompleted stops only (check by stop.id, not address)
-    const uncompletedStops = stops.filter(s => !completedStops.has(s.id));
-    if (uncompletedStops.length === 0) {
-      alert('All stops are already completed!');
-      return;
-    }
-
-    // Build Google Maps URL with waypoints
-    const origin = currentLocation || uncompletedStops[0].location;
-    const destination = uncompletedStops[uncompletedStops.length - 1].location;
-
-    // Middle stops become waypoints
-    const waypoints = uncompletedStops.slice(1, -1).map(s =>
-      `${s.location.lat},${s.location.lng}`
-    ).join('|');
-
-    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`;
-
-    if (waypoints) {
-      url += `&waypoints=${waypoints}`;
-    }
-
-    window.open(url, '_blank');
-
-    // Note: Can't track individual trips in multi-waypoint mode
-    alert('Note: Multi-stop navigation opened. You\'ll need to manually complete each stop for individual trip logging, or use individual navigation buttons for auto-logging.');
-  };
 
   const openFuelStopModal = async () => {
     // Get current location (use geocoding to get address)
@@ -1223,27 +1178,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setDepotSearchValue('');
   };
 
-  const addDepotAsStart = () => {
-    if (!depotAddress) return;
-    // Remove depot if already in stops
-    const filtered = stops.filter((s) => !s.id.includes('depot'));
-    setStops([{ ...depotAddress, id: 'depot-start' }, ...filtered]);
-  };
-
-  const addDepotAsEnd = () => {
-    if (!depotAddress) return;
-    // Remove depot if already in stops
-    const filtered = stops.filter((s) => !s.id.includes('depot'));
-    setStops([...filtered, { ...depotAddress, id: 'depot-end' }]);
-  };
-
-  const addDepotRoundTrip = () => {
-    if (!depotAddress) return;
-    // Remove depot if already in stops
-    const filtered = stops.filter((s) => !s.id.includes('depot'));
-    setStops([{ ...depotAddress, id: 'depot-start', type: 'depot' }, ...filtered, { ...depotAddress, id: 'depot-end', type: 'depot' }]);
-  };
-
   const clearDepot = async () => {
     setDepotAddress(null);
     try {
@@ -1251,24 +1185,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     } catch (error) {
       console.error('Error clearing depot address:', error);
     }
-  };
-
-  const beginRouteFromDepot = () => {
-    if (!depotAddress) {
-      alert('Please set a depot address first');
-      return;
-    }
-
-    // Check if depot already exists in stops
-    const hasDepot = stops.some((s) => s.id.includes('depot'));
-
-    if (!hasDepot) {
-      // Add depot as first stop
-      setStops([{ ...depotAddress, id: 'depot-start', type: 'depot' }]);
-    }
-
-    // Mark route as begun from depot
-    setRouteBegunFromDepot(true);
   };
 
   const toggleTrafficLayer = () => {
@@ -1487,17 +1403,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
             {/* Voice Search Results Dropdown */}
             {voiceSearchResults.length > 0 && (
-              <div className="absolute z-20 w-full mt-1 bg-white border-2 border-blue-400 rounded-lg shadow-xl max-h-72 overflow-y-auto">
-                <div className="px-3 py-2 border-b border-blue-200 bg-blue-50 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-blue-700 uppercase flex items-center space-x-1">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
-                    </svg>
-                    <span>Voice Search Results</span>
-                  </p>
+              <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-72 overflow-y-auto">
+                <div className="flex justify-end px-2 pt-1.5">
                   <button
                     onClick={() => setVoiceSearchResults([])}
-                    className="text-blue-400 hover:text-blue-600"
+                    className="p-1 text-gray-400 hover:text-gray-600 rounded"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -1508,7 +1418,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   <button
                     key={prediction.place_id}
                     onClick={() => selectVoiceResult(prediction)}
-                    className="w-full text-left px-3 py-3 border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition-colors"
+                    className="w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors"
                   >
                     <p className="text-sm font-medium text-gray-900">{prediction.structured_formatting.main_text}</p>
                     <p className="text-xs text-gray-500">{prediction.structured_formatting.secondary_text}</p>
@@ -1562,32 +1472,56 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             )}
           </div>
 
-          {/* Add Current Location Button */}
-          <button
-            onClick={addCurrentLocation}
-            className="mt-2 w-full flex items-center justify-center space-x-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-sm font-medium"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
-            </svg>
-            <span>Add Current Location</span>
-          </button>
-
-          {/* Traffic Layer Toggle */}
-          <button
-            onClick={toggleTrafficLayer}
-            className={`mt-2 w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium ${
-              showTraffic
-                ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-gray-50 text-gray-700 border border-gray-300 hover:bg-gray-100'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-            </svg>
-            <span>{showTraffic ? 'Hide Traffic' : 'Show Traffic'}</span>
-          </button>
+          {/* Quick Action Toolbar */}
+          <div className="mt-2 flex items-center gap-1.5">
+            <button
+              onClick={addCurrentLocation}
+              title="Add current location as a stop"
+              className="flex-1 flex items-center justify-center py-2.5 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-500 rounded-lg transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              </svg>
+            </button>
+            <button
+              onClick={toggleTrafficLayer}
+              title={showTraffic ? 'Hide traffic layer' : 'Show traffic layer'}
+              className={`flex-1 flex items-center justify-center py-2.5 rounded-lg transition-colors ${
+                showTraffic
+                  ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+              </svg>
+            </button>
+            {activeTrip && (
+              <button
+                onClick={openFuelStopModal}
+                title="Log fuel stop"
+                className="flex-1 flex items-center justify-center py-2.5 bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-orange-600 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={() => setShowDepotModal(true)}
+              title={depotAddress ? `Depot: ${depotAddress.address}` : 'Set depot address'}
+              className={`flex-1 flex items-center justify-center py-2.5 rounded-lg transition-colors ${
+                depotAddress
+                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+              </svg>
+            </button>
+          </div>
 
           {/* Pickup/Delivery Choice Modal - Auto-navigates with preferred app */}
           {pendingStop && (
@@ -1623,200 +1557,164 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             </div>
           )}
 
-          {/* Favorites Section */}
+          {/* Favorites — horizontal scrollable chips */}
           {favorites.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-gray-600 uppercase flex items-center space-x-1">
-                  <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
-                  </svg>
-                  <span>Favorites</span>
-                </span>
-              </div>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
                 {favorites.map((fav) => (
-                  <div
+                  <button
                     key={fav.id}
-                    className="bg-yellow-50 rounded-lg p-2 border border-yellow-200"
+                    onClick={() => setPendingStop({ address: fav.address, location: fav.location })}
+                    title={fav.address}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 text-yellow-900 text-xs font-semibold rounded-full transition-colors"
                   >
-                    <div className="flex items-start justify-between mb-1">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-yellow-900 truncate">{fav.name}</p>
-                        <p className="text-xs text-yellow-700 truncate">{fav.address}</p>
-                      </div>
-                      <button
-                        onClick={() => deleteFavorite(fav.id)}
-                        className="ml-2 text-gray-400 hover:text-red-600 flex-shrink-0"
-                        title="Remove favorite"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => addFromFavorite(fav, 'pickup')}
-                        className="flex-1 px-2 py-1 bg-amber-600 text-white rounded text-xs font-medium hover:bg-amber-700"
-                      >
-                        Pickup
-                      </button>
-                      <button
-                        onClick={() => addFromFavorite(fav, 'delivery')}
-                        className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
-                      >
-                        Delivery
-                      </button>
-                    </div>
-                  </div>
+                    <svg className="w-3 h-3 text-yellow-500 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                    </svg>
+                    <span className="truncate max-w-[100px]">{fav.name}</span>
+                  </button>
                 ))}
               </div>
             </div>
           )}
         </div>
 
-        {/* Stops List - COMPACT VERSION */}
-        <div className="flex-1 overflow-y-auto p-4 max-h-[40vh] md:max-h-none">
+        {/* Stops List */}
+        <div className="flex-1 overflow-y-auto p-3 max-h-[40vh] md:max-h-none">
           {stops.length === 0 ? (
-            <div className="text-center py-6 text-gray-400">
-              <svg className="w-10 h-10 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+            <div className="text-center py-8 text-gray-400">
+              <svg className="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
               </svg>
-              <p className="text-sm">No stops added yet</p>
-              <p className="text-xs mt-1">Search for addresses above</p>
+              <p className="text-sm font-medium text-gray-500">No stops added yet</p>
+              <p className="text-xs mt-1 text-gray-400">Search or speak an address above</p>
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {[...stops].reverse().map((stop, displayIndex) => {
-                // displayIndex is reversed, originalIndex is the actual position in stops array
                 const originalIndex = stops.length - 1 - displayIndex;
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
                 const isDepot = stop.type === 'depot';
-                const isCompleted = completedStops.has(stop.id); // Check by ID, not address
+                const isCompleted = completedStops.has(stop.id);
                 const isActiveDestination = activeTrip?.destinationStopId === stop.id;
-                const bgColor = isCompleted ? 'bg-gray-100 border-gray-300 opacity-60' : isPickup ? 'bg-amber-50 border-amber-200' : isDelivery ? 'bg-green-50 border-green-200' : isDepot ? 'bg-gray-50 border-gray-300' : 'bg-gray-50 border-gray-200';
-                const markerColor = isCompleted ? 'bg-gray-400' : isPickup ? 'bg-amber-600' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-600' : 'bg-blue-600';
 
-                return (
-                  <div key={stop.id} className="space-y-1">
+                if (isCompleted) {
+                  return (
                     <div
-                      draggable={!isCompleted}
-                      onDragStart={() => handleDragStart(originalIndex)}
-                      onDragOver={(e) => handleDragOver(e, originalIndex)}
-                      onDrop={(e) => handleDrop(e, originalIndex)}
-                      className={`flex items-center space-x-2 p-2 rounded-lg border ${isCompleted ? '' : 'hover:opacity-80 cursor-move'} ${bgColor}`}
+                      key={stop.id}
+                      className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl opacity-70"
                     >
-                      <div className="flex-shrink-0 flex items-center space-x-1.5">
-                        {isCompleted ? (
-                          <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-                          </svg>
-                        ) : (
-                          <>
-                            <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
-                            </svg>
-                            <div className={`w-6 h-6 rounded-full ${markerColor} text-white flex items-center justify-center font-bold text-xs`}>
-                              {originalIndex + 1}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-gray-900 truncate leading-tight flex-1">{stop.address}</p>
-                          {isCompleted && (
-                            <button
-                              onClick={() => openSaveFavoriteModal(stop.address, stop.location)}
-                              className="ml-2 text-gray-400 hover:text-yellow-500 flex-shrink-0"
-                              title="Save as favorite"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-1 mt-0.5">
-                          {isCompleted && (
-                            <>
-                              <span className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-green-600 text-white">
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                                </svg>
-                                <span>TRIP LOGGED</span>
-                              </span>
-                              <button
-                                onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                                className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white hover:bg-blue-700"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                                </svg>
-                                <span>GO AGAIN</span>
-                              </button>
-                            </>
-                          )}
-                          {!isCompleted && (isPickup || isDelivery) && (
-                            <>
+                      <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                      </svg>
+                      <p className="flex-1 text-xs text-gray-500 truncate">{stop.address}</p>
+                      <button
+                        onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                        className="flex-shrink-0 text-xs font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                      >
+                        Again
+                      </button>
+                      <button
+                        onClick={() => openSaveFavoriteModal(stop.address, stop.location)}
+                        className="flex-shrink-0 text-gray-300 hover:text-yellow-500 transition-colors"
+                        title="Save as favorite"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                }
+
+                // Active en-route card — blue left border, DONE button
+                if (isActiveDestination) {
+                  return (
+                    <div
+                      key={stop.id}
+                      draggable={false}
+                      className="flex items-stretch bg-white border border-blue-300 rounded-xl shadow-sm overflow-hidden"
+                    >
+                      <div className="w-1 bg-blue-500 flex-shrink-0" />
+                      <div className="flex-1 flex items-center gap-2 px-3 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{stop.address}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            {(isPickup || isDelivery) && (
                               <button
                                 onClick={() => toggleStopType(stop.id)}
-                                className={`inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  isPickup ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-green-600 text-white hover:bg-green-700'
+                                className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                  isPickup ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
                                 }`}
                               >
-                                <span>{isPickup ? 'PICKUP' : 'DELIVERY'}</span>
+                                {isPickup ? 'Pickup' : 'Delivery'}
                               </button>
-                              {/* Always show GO button for pending stops (allows mid-route navigation) */}
-                              {!isActiveDestination && (
-                                <button
-                                  onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                                  className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white hover:bg-blue-700"
-                                >
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                                  </svg>
-                                  <span>GO</span>
-                                </button>
-                              )}
-                            </>
-                          )}
-                          {isDepot && (
-                            <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-600 text-white">
-                              <span>DEPOT</span>
+                            )}
+                            {isDepot && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                            <span className="flex items-center gap-1 text-xs text-blue-600 font-medium">
+                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse inline-block" />
+                              En Route
                             </span>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                      {!isCompleted && (
-                        <button
-                          onClick={() => removeStop(stop.id)}
-                          className="flex-shrink-0 text-gray-400 hover:text-red-600 p-1"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Streamlined EN ROUTE button - tap to complete */}
-                    {!isCompleted && isActiveDestination && (
-                      <div className="px-2 mt-1.5">
                         <button
                           onClick={() => manualCompleteStop(stop)}
-                          className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-bold hover:from-purple-700 hover:to-blue-700 flex items-center justify-center space-x-2 shadow-md animate-pulse min-h-[50px]"
+                          className="flex-shrink-0 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
                         >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                          </svg>
-                          <span>EN ROUTE - TAP WHEN DONE</span>
+                          Done
                         </button>
                       </div>
-                    )}
+                    </div>
+                  );
+                }
 
+                // Regular pending stop card
+                const numColor = isPickup ? 'bg-amber-500' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-500' : 'bg-blue-600';
+                return (
+                  <div
+                    key={stop.id}
+                    draggable
+                    onDragStart={() => handleDragStart(originalIndex)}
+                    onDragOver={(e) => handleDragOver(e, originalIndex)}
+                    onDrop={(e) => handleDrop(e, originalIndex)}
+                    className="flex items-center gap-2 px-3 py-3 bg-white border border-gray-200 rounded-xl shadow-sm cursor-move hover:border-gray-300 transition-colors"
+                  >
+                    <div className={`w-6 h-6 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                      {originalIndex + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate leading-tight">{stop.address}</p>
+                      {(isPickup || isDelivery || isDepot) && (
+                        <div className="mt-0.5">
+                          {(isPickup || isDelivery) && (
+                            <button
+                              onClick={() => toggleStopType(stop.id)}
+                              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                isPickup ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
+                              } transition-colors`}
+                            >
+                              {isPickup ? 'Pickup' : 'Delivery'}
+                            </button>
+                          )}
+                          {isDepot && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                      className="flex-shrink-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                    >
+                      GO
+                    </button>
+                    <button
+                      onClick={() => removeStop(stop.id)}
+                      className="flex-shrink-0 text-gray-300 hover:text-red-500 p-1 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                      </svg>
+                    </button>
                   </div>
                 );
               })}
@@ -1826,110 +1724,86 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
         {/* Footer */}
         {stops.length > 0 && (
-          <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3">
-            {/* Stop Summary */}
+          <div className="px-3 py-3 border-t border-gray-100 bg-white space-y-2">
+            {/* Stop summary + Optimize */}
             {(() => {
               const pickupCount = stops.filter(s => s.type === 'pickup').length;
               const deliveryCount = stops.filter(s => s.type === 'delivery').length;
-              const hasMultipleStops = stops.length > 2; // Show optimize if more than 2 stops
-
+              const uncompletedCount = stops.filter(s => !completedStops.has(s.id)).length;
               return (
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-xs font-medium">
                     {pickupCount > 0 && (
-                      <span className="flex items-center space-x-1 text-amber-700 font-semibold">
+                      <span className="flex items-center gap-1 text-amber-700">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
                         </svg>
-                        <span>{pickupCount} Pickup{pickupCount !== 1 ? 's' : ''}</span>
+                        {pickupCount}P
                       </span>
                     )}
                     {deliveryCount > 0 && (
-                      <span className="flex items-center space-x-1 text-green-700 font-semibold">
+                      <span className="flex items-center gap-1 text-green-700">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
                         </svg>
-                        <span>{deliveryCount} Deliver{deliveryCount !== 1 ? 'y' : 'ies'}</span>
+                        {deliveryCount}D
                       </span>
                     )}
                     {pickupCount === 0 && deliveryCount === 0 && (
-                      <span className="text-gray-500 font-medium">{stops.length} Stop{stops.length !== 1 ? 's' : ''}</span>
+                      <span className="text-gray-500">{stops.length} stop{stops.length !== 1 ? 's' : ''}</span>
                     )}
                   </div>
-                  {hasMultipleStops && (
+                  {uncompletedCount >= 3 && (
                     <button
-                      onClick={groupPickupsFirst}
-                      className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 flex items-center space-x-1"
+                      onClick={optimizeRouteWithDirections}
+                      disabled={isOptimizing}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-xs font-semibold rounded-lg transition-colors"
                     >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                      </svg>
-                      <span>Optimize Route</span>
+                      {isOptimizing ? (
+                        <>
+                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                          </svg>
+                          <span>Optimizing…</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                          </svg>
+                          <span>Optimize</span>
+                        </>
+                      )}
                     </button>
                   )}
                 </div>
               );
             })()}
 
-            {/* Route Details */}
+            {/* Route details */}
             {routeDetails && (
-              <div className={`rounded-lg p-3 border ${routeStartTime ? 'bg-green-50 border-green-300' : 'bg-blue-50 border-blue-200'}`}>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center space-x-2">
-                    <svg className={`w-4 h-4 ${routeStartTime ? 'text-green-600' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                    </svg>
-                    <span className={`font-semibold ${routeStartTime ? 'text-green-900' : 'text-blue-900'}`}>{routeDetails.distance}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <svg className={`w-4 h-4 ${routeStartTime ? 'text-green-600' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                    <span className={`font-semibold ${routeStartTime ? 'text-green-900' : 'text-blue-900'}`}>{routeDetails.duration}</span>
-                  </div>
-                </div>
-                {routeStartTime && (
-                  <div className="mt-2 pt-2 border-t border-green-200 flex items-center justify-center space-x-2 text-xs text-green-700 font-medium">
-                    <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse"></div>
-                    <span>Tracking - Trip will auto-log when complete</span>
-                  </div>
+              <div className={`rounded-lg px-3 py-2 flex items-center justify-between text-sm ${activeTrip ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
+                <span className={`font-semibold ${activeTrip ? 'text-green-800' : 'text-gray-700'}`}>{routeDetails.distance}</span>
+                {activeTrip && (
+                  <span className="flex items-center gap-1.5 text-xs text-green-700 font-medium">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                    Tracking
+                  </span>
                 )}
+                <span className={`font-semibold ${activeTrip ? 'text-green-800' : 'text-gray-700'}`}>{routeDetails.duration}</span>
               </div>
             )}
 
-            {/* Navigate All Stops Button - Shows when multiple uncompleted stops */}
-            {stops.filter(s => !completedStops.has(s.id)).length > 1 && !activeTrip && (
+            {/* Clear all — subtle text link */}
+            <div className="text-center">
               <button
-                onClick={navigateAllStops}
-                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold text-sm flex items-center justify-center space-x-2 mb-2 min-h-[50px]"
+                onClick={clearAll}
+                className="text-xs text-gray-400 hover:text-red-500 font-medium transition-colors py-1"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
-                </svg>
-                <span>Navigate All Stops (Google Maps)</span>
+                Clear all stops
               </button>
-            )}
-
-            {/* Fuel Stop Button - Shows when trip is active */}
-            {activeTrip && (
-              <button
-                onClick={openFuelStopModal}
-                className="w-full px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium text-xs flex items-center justify-center space-x-2 mb-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                </svg>
-                <span>Log Fuel Stop</span>
-              </button>
-            )}
-
-            {/* Clear All Button */}
-            <button
-              onClick={clearAll}
-              className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm min-h-[44px]"
-            >
-              Clear All
-            </button>
+            </div>
           </div>
         )}
       </div>

@@ -1382,7 +1382,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <input
               ref={searchInputRef}
               type="text"
-              className="block w-full pl-12 pr-14 py-3 md:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base md:text-sm"
+              className="block w-full pl-12 pr-14 py-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
               placeholder="Search address..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
@@ -1418,10 +1418,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   <button
                     key={prediction.place_id}
                     onClick={() => selectVoiceResult(prediction)}
-                    className="w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors"
+                    className="w-full text-left px-4 py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors"
                   >
-                    <p className="text-sm font-medium text-gray-900">{prediction.structured_formatting.main_text}</p>
-                    <p className="text-xs text-gray-500">{prediction.structured_formatting.secondary_text}</p>
+                    <p className="text-base font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
                   </button>
                 ))}
               </div>
@@ -1429,38 +1429,38 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
             {/* Address History Dropdown */}
             {showHistory && addressHistory.length > 0 && voiceSearchResults.length === 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
-                  <p className="text-xs font-semibold text-gray-600 uppercase">Recent Addresses</p>
+              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-80 overflow-y-auto">
+                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Recent</p>
                 </div>
                 {addressHistory.slice(0, 10).map((item) => (
                   <div
                     key={item.id}
-                    className="border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition-colors"
+                    className="border-b border-gray-100 last:border-b-0"
                   >
-                    <div className="px-3 py-2">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-sm text-gray-900 truncate flex-1">{item.address}</p>
+                    <div className="px-4 py-3">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <p className="text-base font-medium text-gray-900 truncate flex-1 leading-tight">{item.address}</p>
                         <button
                           onClick={() => openSaveFavoriteModal(item.address, item.location)}
-                          className="ml-2 text-gray-400 hover:text-yellow-500 flex-shrink-0"
+                          className="ml-3 text-gray-300 hover:text-yellow-500 flex-shrink-0 p-1"
                           title="Save as favorite"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
                           </svg>
                         </button>
                       </div>
-                      <div className="flex space-x-2">
+                      <div className="flex gap-2">
                         <button
                           onClick={() => addFromHistory(item, 'pickup')}
-                          className="flex-1 px-2 py-1 bg-amber-600 text-white rounded text-xs font-medium hover:bg-amber-700"
+                          className="flex-1 py-3 bg-amber-500 text-white rounded-xl text-sm font-bold hover:bg-amber-600 active:scale-95 transition-all"
                         >
                           Pickup
                         </button>
                         <button
                           onClick={() => addFromHistory(item, 'delivery')}
-                          className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700"
+                          className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 active:scale-95 transition-all"
                         >
                           Delivery
                         </button>
@@ -1477,7 +1477,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <button
               onClick={addCurrentLocation}
               title="Add current location as a stop"
-              className="flex-1 flex items-center justify-center py-2.5 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-500 rounded-lg transition-colors"
+              className="flex-1 flex items-center justify-center py-3.5 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-500 rounded-xl transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
@@ -1487,7 +1487,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <button
               onClick={toggleTrafficLayer}
               title={showTraffic ? 'Hide traffic layer' : 'Show traffic layer'}
-              className={`flex-1 flex items-center justify-center py-2.5 rounded-lg transition-colors ${
+              className={`flex-1 flex items-center justify-center py-3.5 rounded-xl transition-colors ${
                 showTraffic
                   ? 'bg-red-100 text-red-700 hover:bg-red-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -1501,7 +1501,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               <button
                 onClick={openFuelStopModal}
                 title="Log fuel stop"
-                className="flex-1 flex items-center justify-center py-2.5 bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-orange-600 rounded-lg transition-colors"
+                className="flex-1 flex items-center justify-center py-3.5 bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-orange-600 rounded-xl transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
@@ -1511,7 +1511,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <button
               onClick={() => setShowDepotModal(true)}
               title={depotAddress ? `Depot: ${depotAddress.address}` : 'Set depot address'}
-              className={`flex-1 flex items-center justify-center py-2.5 rounded-lg transition-colors ${
+              className={`flex-1 flex items-center justify-center py-3.5 rounded-xl transition-colors ${
                 depotAddress
                   ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -1523,39 +1523,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             </button>
           </div>
 
-          {/* Pickup/Delivery Choice Modal - Auto-navigates with preferred app */}
-          {pendingStop && (
-            <div className="mt-2 p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
-              <p className="text-sm font-semibold text-blue-900 mb-2 truncate">{pendingStop.address}</p>
-              <p className="text-xs text-blue-700 mb-3">Tap to add stop & navigate:</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => addStopAndNavigate(pendingStop.address, pendingStop.location, 'pickup')}
-                  className="px-4 py-4 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold text-sm flex flex-col items-center justify-center space-y-1 min-h-[70px] shadow-lg active:scale-95 transition-transform"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
-                  </svg>
-                  <span>Pickup</span>
-                </button>
-                <button
-                  onClick={() => addStopAndNavigate(pendingStop.address, pendingStop.location, 'delivery')}
-                  className="px-4 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 font-bold text-sm flex flex-col items-center justify-center space-y-1 min-h-[70px] shadow-lg active:scale-95 transition-transform"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-                  </svg>
-                  <span>Delivery</span>
-                </button>
-              </div>
-              <button
-                onClick={() => setPendingStop(null)}
-                className="mt-3 w-full text-sm text-blue-600 hover:underline font-medium"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
 
           {/* Favorites — horizontal scrollable chips */}
           {favorites.length > 0 && (
@@ -1603,24 +1570,24 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   return (
                     <div
                       key={stop.id}
-                      className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl opacity-70"
+                      className="flex items-center gap-2 px-3 py-3.5 bg-gray-50 border border-gray-200 rounded-xl opacity-60"
                     >
                       <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
                       </svg>
-                      <p className="flex-1 text-xs text-gray-500 truncate">{stop.address}</p>
+                      <p className="flex-1 text-sm text-gray-500 truncate">{stop.address}</p>
                       <button
                         onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                        className="flex-shrink-0 text-xs font-semibold text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                        className="flex-shrink-0 text-sm font-semibold text-blue-600 hover:text-blue-800 px-3 py-2 rounded-xl hover:bg-blue-50 transition-colors"
                       >
                         Again
                       </button>
                       <button
                         onClick={() => openSaveFavoriteModal(stop.address, stop.location)}
-                        className="flex-shrink-0 text-gray-300 hover:text-yellow-500 transition-colors"
+                        className="flex-shrink-0 text-gray-300 hover:text-yellow-500 transition-colors p-1.5"
                         title="Save as favorite"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
                         </svg>
                       </button>
@@ -1636,31 +1603,31 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       draggable={false}
                       className="flex items-stretch bg-white border border-blue-300 rounded-xl shadow-sm overflow-hidden"
                     >
-                      <div className="w-1 bg-blue-500 flex-shrink-0" />
-                      <div className="flex-1 flex items-center gap-2 px-3 py-3">
+                      <div className="w-1.5 bg-blue-500 flex-shrink-0" />
+                      <div className="flex-1 flex items-center gap-3 px-3 py-4">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{stop.address}</p>
-                          <div className="flex items-center gap-1.5 mt-1">
+                          <p className="text-sm font-semibold text-gray-900 truncate leading-snug">{stop.address}</p>
+                          <div className="flex items-center gap-1.5 mt-1.5">
                             {(isPickup || isDelivery) && (
                               <button
                                 onClick={() => toggleStopType(stop.id)}
-                                className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                                   isPickup ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
                                 }`}
                               >
                                 {isPickup ? 'Pickup' : 'Delivery'}
                               </button>
                             )}
-                            {isDepot && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
-                            <span className="flex items-center gap-1 text-xs text-blue-600 font-medium">
-                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse inline-block" />
+                            {isDepot && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                            <span className="flex items-center gap-1 text-xs text-blue-600 font-semibold">
+                              <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse inline-block" />
                               En Route
                             </span>
                           </div>
                         </div>
                         <button
                           onClick={() => manualCompleteStop(stop)}
-                          className="flex-shrink-0 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                          className="flex-shrink-0 px-5 py-3.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
                         >
                           Done
                         </button>
@@ -1678,40 +1645,40 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     onDragStart={() => handleDragStart(originalIndex)}
                     onDragOver={(e) => handleDragOver(e, originalIndex)}
                     onDrop={(e) => handleDrop(e, originalIndex)}
-                    className="flex items-center gap-2 px-3 py-3 bg-white border border-gray-200 rounded-xl shadow-sm cursor-move hover:border-gray-300 transition-colors"
+                    className="flex items-center gap-2 px-3 py-4 bg-white border border-gray-200 rounded-xl shadow-sm cursor-move hover:border-gray-300 transition-colors"
                   >
-                    <div className={`w-6 h-6 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                    <div className={`w-7 h-7 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
                       {originalIndex + 1}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate leading-tight">{stop.address}</p>
+                      <p className="text-sm font-semibold text-gray-900 truncate leading-snug">{stop.address}</p>
                       {(isPickup || isDelivery || isDepot) && (
-                        <div className="mt-0.5">
+                        <div className="mt-1">
                           {(isPickup || isDelivery) && (
                             <button
                               onClick={() => toggleStopType(stop.id)}
-                              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                                 isPickup ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
                               } transition-colors`}
                             >
                               {isPickup ? 'Pickup' : 'Delivery'}
                             </button>
                           )}
-                          {isDepot && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                          {isDepot && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">Depot</span>}
                         </div>
                       )}
                     </div>
                     <button
                       onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                      className="flex-shrink-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                      className="flex-shrink-0 px-5 py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
                     >
                       GO
                     </button>
                     <button
                       onClick={() => removeStop(stop.id)}
-                      className="flex-shrink-0 text-gray-300 hover:text-red-500 p-1 transition-colors"
+                      className="flex-shrink-0 text-gray-300 hover:text-red-500 p-2 transition-colors"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                       </svg>
                     </button>
@@ -1812,6 +1779,50 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       <div className="flex-1 relative hidden md:flex">
         <div ref={mapRef} className="absolute inset-0" />
       </div>
+
+      {/* Pickup / Delivery Bottom Sheet — floats above everything, search bar stays free */}
+      {pendingStop && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setPendingStop(null)}>
+          {/* Tap-to-dismiss backdrop */}
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative bg-white rounded-t-3xl shadow-2xl px-4 pt-3 pb-10 safe-area-inset-bottom"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Handle */}
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
+            {/* Address */}
+            <p className="text-base font-bold text-gray-900 mb-0.5 truncate">{pendingStop.address}</p>
+            <p className="text-sm text-gray-500 mb-5">Add as pickup or delivery?</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => addStopAndNavigate(pendingStop.address, pendingStop.location, 'pickup')}
+                className="py-5 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-base flex flex-col items-center gap-2 active:scale-95 transition-all shadow-md"
+              >
+                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                </svg>
+                Pickup
+              </button>
+              <button
+                onClick={() => addStopAndNavigate(pendingStop.address, pendingStop.location, 'delivery')}
+                className="py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl font-bold text-base flex flex-col items-center gap-2 active:scale-95 transition-all shadow-md"
+              >
+                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                </svg>
+                Delivery
+              </button>
+            </div>
+            <button
+              onClick={() => setPendingStop(null)}
+              className="mt-4 w-full py-3.5 text-sm font-semibold text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Depot Address Modal */}
       {showDepotModal && (

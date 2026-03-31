@@ -85,8 +85,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     destinationLocation: google.maps.LatLngLiteral;
     destinationStopId: string; // Track stop.id to mark as completed
     startTime: number;
-    distanceTraveled: number;
   } | null>(null);
+  const distanceTraveledRef = useRef<number>(0); // Mutable ref to avoid GPS effect restarts
   const [completedStops, setCompletedStops] = useState<Set<string>>(new Set()); // Track by stop.id, not address
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
@@ -289,25 +289,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               lng: position.coords.longitude,
             };
 
-            // Calculate distance traveled if we have a previous position AND active trip exists
-            if (lastGpsPosition.current && activeTrip) {
+            // Calculate distance traveled if we have a previous position
+            if (lastGpsPosition.current) {
               const distance = calculateDistance(lastGpsPosition.current, currentPos);
-              setActiveTrip(prev => {
-                if (!prev) return null; // Safety check
-                return { ...prev, distanceTraveled: prev.distanceTraveled + distance };
-              });
+              distanceTraveledRef.current += distance;
             }
             lastGpsPosition.current = currentPos;
 
             // CRITICAL: Only check arrival if activeTrip still exists (not already logged)
             if (!activeTrip) {
-              console.log('[SubRoute GPS] No active trip, skipping arrival check');
               return;
             }
 
             // Check if we've arrived at destination (within 50 meters)
             const distanceToDestination = calculateDistance(currentPos, activeTrip.destinationLocation);
-            console.log('[SubRoute GPS] Distance to destination:', (distanceToDestination * 1000).toFixed(0), 'meters');
             if (distanceToDestination <= 0.05) { // 50 meters = 0.05 km
               console.log('[SubRoute GPS] 🎯 Arrived at destination! Auto-logging trip...');
               logCompletedTrip();
@@ -423,50 +418,40 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
           const address = place.formatted_address || place.name || 'Unknown';
 
-          // Save to history and check for auto-promote to favorites
-          try {
-            const savedAddress: SavedAddress = {
-              id: `${location.lat}_${location.lng}`,
-              address,
-              location,
-            };
-            const useCount = await saveAddressToHistory(user.id, savedAddress);
-
-            // Auto-promote to favorites after 4 visits (if not already favorited)
-            if (useCount >= 4) {
-              const isAlreadyFavorite = favorites.some(fav => fav.id === savedAddress.id);
-              if (!isAlreadyFavorite) {
-                console.log('[SubRoute] Auto-promoting to favorites:', address, 'visits:', useCount);
-                const autoFavorite: FavoriteAddress = {
-                  ...savedAddress,
-                  name: `📍 ${address.split(',')[0]}`, // Use first part of address
-                  createdAt: Date.now(),
-                };
-                await saveFavoriteAddress(user.id, autoFavorite);
-                // Show toast notification (optional - can be styled better later)
-                alert(`🌟 Added to favorites: ${address.split(',')[0]} (${useCount} visits)`);
-              }
-            }
-
-            // Reload history and update offline cache
-            const history = await getAddressHistory(user.id, 50);
-            setAddressHistory(history);
-            localStorage.setItem(`subroute_address_history_${user.id}`, JSON.stringify(history));
-          } catch (error) {
-            console.error('Error saving address to history:', error);
-          }
-
-          // Set as pending stop - user will choose pickup or delivery
-          setPendingStop({
-            address,
-            location,
-          });
-
-          // Clear search
+          // Show bottom sheet immediately — don't wait for Firestore
+          setPendingStop({ address, location });
           setSearchValue('');
           if (searchInputRef.current) {
             searchInputRef.current.value = '';
           }
+
+          // Save to history in the background (don't block UI)
+          const savedAddress: SavedAddress = {
+            id: `${location.lat}_${location.lng}`,
+            address,
+            location,
+          };
+          saveAddressToHistory(user.id, savedAddress).then(async (useCount) => {
+            // Auto-promote to favorites after 4 visits (if not already favorited)
+            if (useCount >= 4) {
+              const isAlreadyFavorite = favorites.some(fav => fav.id === savedAddress.id);
+              if (!isAlreadyFavorite) {
+                const autoFavorite: FavoriteAddress = {
+                  ...savedAddress,
+                  name: `📍 ${address.split(',')[0]}`,
+                  createdAt: Date.now(),
+                };
+                await saveFavoriteAddress(user.id, autoFavorite);
+                alert(`🌟 Added to favorites: ${address.split(',')[0]} (${useCount} visits)`);
+              }
+            }
+            // Update history cache after save
+            const history = await getAddressHistory(user.id, 50);
+            setAddressHistory(history);
+            localStorage.setItem(`subroute_address_history_${user.id}`, JSON.stringify(history));
+          }).catch((error) => {
+            console.error('Error saving address to history:', error);
+          });
         });
       }
 
@@ -808,32 +793,29 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.log('[SubRoute] Partial trip - using current GPS as destination:', actualDestinationLocation);
     }
 
-    // Get ACTUAL road distance from Google Directions API (not GPS tracking)
-    let distanceKm = 0;
-    try {
-      distanceKm = await getRouteDistance(tripToLog.originLocation, actualDestinationLocation);
-      console.log('[SubRoute] Route distance from Google:', distanceKm, 'km');
-    } catch (e) {
-      console.error('[SubRoute] Failed to get route distance:', e);
-    }
+    // Fetch road distance and vehicle info in parallel
+    const [distanceResult, vehiclesResult] = await Promise.allSettled([
+      getRouteDistance(tripToLog.originLocation, actualDestinationLocation),
+      getVehicles(user.id),
+    ]);
 
-    // Fallback: if Google Directions failed, use straight-line distance as minimum
+    let distanceKm = distanceResult.status === 'fulfilled' ? distanceResult.value : 0;
     if (distanceKm === 0) {
       const straightLine = calculateDistance(tripToLog.originLocation, actualDestinationLocation);
-      distanceKm = straightLine * 1.3; // Add 30% for road distance approximation
+      distanceKm = straightLine * 1.3;
       console.log('[SubRoute] Using straight-line fallback:', distanceKm.toFixed(1), 'km');
+    } else {
+      console.log('[SubRoute] Route distance from Google:', distanceKm, 'km');
     }
 
-    // Get vehicle info
     let vehicleString = 'Unknown Vehicle';
-    try {
-      const vehicles = await getVehicles(user.id);
-      const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+    if (vehiclesResult.status === 'fulfilled') {
+      const defaultVehicle = vehiclesResult.value.find((v: Vehicle) => v.isDefault);
       if (defaultVehicle) {
         vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
       }
-    } catch (e) {
-      console.error('Failed to load vehicle info', e);
+    } else {
+      console.error('Failed to load vehicle info', vehiclesResult.reason);
     }
 
     // Create trip log with actual destination (original or current GPS for partial trips)
@@ -922,6 +904,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         depotStart: routeBegunFromDepot,
         activeTrip: overrides.activeTrip !== undefined ? overrides.activeTrip : activeTrip,
         completedStops: Array.from(overrides.completedStops ?? completedStops),
+        savedDate: new Date().toISOString().split('T')[0],
       };
       localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
       console.log('[SubRoute] Route state persisted synchronously');
@@ -946,6 +929,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
 
     // Start tracking this NEW trip
+    distanceTraveledRef.current = 0;
     const newTrip = {
       origin: originAddress,
       originLocation: origin || stop.location, // Fallback to destination if no origin
@@ -953,7 +937,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       destinationLocation: stop.location,
       destinationStopId: stop.id, // Track stop ID for completion
       startTime: Date.now(),
-      distanceTraveled: 0,
     };
     console.log('[SubRoute] Starting NEW trip tracking:', newTrip);
     setActiveTrip(newTrip);
@@ -1011,27 +994,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
     // Auto-calculate odometer: start from vehicle's base odometer + total logged km
     try {
-      const vehicles = await getVehicles(user.id);
+      const [vehicles, trips] = await Promise.all([getVehicles(user.id), getTripLogs(user.id)]);
       const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
       if (defaultVehicle) {
-        // If vehicle has a current odometer (updated from last fuel stop), use that
         if (defaultVehicle.currentOdometer) {
-          // Add distance from trips logged AFTER the odometer was last set
-          const trips = await getTripLogs(user.id);
-          // Sum trips that happened after the vehicle's odometer was last updated
-          // Simple approach: current odometer + today's logged km
           const today = new Date().toISOString().split('T')[0];
           const todayKm = trips
             .filter(t => t.date === today)
             .reduce((sum, t) => sum + t.distanceKm, 0);
-          const estimatedOdometer = defaultVehicle.currentOdometer + todayKm;
-          setFuelStopOdometer(Math.round(estimatedOdometer).toString());
+          setFuelStopOdometer(Math.round(defaultVehicle.currentOdometer + todayKm).toString());
         } else if (defaultVehicle.startOdometer) {
-          // No current odometer set yet - use start + all trip km
-          const trips = await getTripLogs(user.id);
           const totalKm = trips.reduce((sum, t) => sum + t.distanceKm, 0);
-          const estimatedOdometer = defaultVehicle.startOdometer + totalKm;
-          setFuelStopOdometer(Math.round(estimatedOdometer).toString());
+          setFuelStopOdometer(Math.round(defaultVehicle.startOdometer + totalKm).toString());
         }
       }
     } catch (e) {

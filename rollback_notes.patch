@@ -1,0 +1,64 @@
+diff --git a/components/SimpleRoutePlanner.tsx b/components/SimpleRoutePlanner.tsx
+index ef1ae89..7d508ce 100644
+--- a/components/SimpleRoutePlanner.tsx
++++ b/components/SimpleRoutePlanner.tsx
+@@ -1414,7 +1414,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
+                   >
+                     <div className="px-4 py-3">
+                       <div className="flex items-center justify-between mb-2.5">
+-                        <p className="text-base font-medium text-gray-900 truncate flex-1 leading-tight">{item.address}</p>
++                        <p className="text-base font-medium text-gray-900 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide flex-1 leading-tight">{item.address}</p>
+                         <button
+                           onClick={() => openSaveFavoriteModal(item.address, item.location)}
+                           className="ml-3 text-gray-300 hover:text-yellow-500 flex-shrink-0 p-1"
+@@ -1549,7 +1549,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
+                       <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                       </svg>
+-                      <p className="flex-1 text-sm text-gray-500 truncate">{stop.address}</p>
++                      <p className="flex-1 text-sm text-gray-500 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide">{stop.address}</p>
+                       <button
+                         onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                         className="flex-shrink-0 text-sm font-semibold text-blue-600 hover:text-blue-800 px-3 py-2 rounded-xl hover:bg-blue-50 transition-colors"
+@@ -1580,7 +1580,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
+                       <div className="w-1.5 bg-blue-500 flex-shrink-0" />
+                       <div className="flex-1 flex items-center gap-3 px-3 py-4">
+                         <div className="flex-1 min-w-0">
+-                          <p className="text-sm font-semibold text-gray-900 truncate leading-snug">{stop.address}</p>
++                          <p className="text-sm font-semibold text-gray-900 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide leading-snug">{stop.address}</p>
+                           <div className="flex items-center gap-1.5 mt-1.5">
+                             {(isPickup || isDelivery) && (
+                               <button
+@@ -1625,7 +1625,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
+                       {originalIndex + 1}
+                     </div>
+                     <div className="flex-1 min-w-0">
+-                      <p className="text-sm font-semibold text-gray-900 truncate leading-snug">{stop.address}</p>
++                      <p className="text-sm font-semibold text-gray-900 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide leading-snug">{stop.address}</p>
+                       {(isPickup || isDelivery || isDepot) && (
+                         <div className="mt-1">
+                           {(isPickup || isDelivery) && (
+@@ -1766,7 +1766,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
+             {/* Handle */}
+             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
+             {/* Address */}
+-            <p className="text-base font-bold text-gray-900 mb-0.5 truncate">{pendingStop.address}</p>
++            <p className="text-base font-bold text-gray-900 mb-0.5 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide">{pendingStop.address}</p>
+             <p className="text-sm text-gray-500 mb-5">Add as pickup or delivery?</p>
+             <div className="grid grid-cols-2 gap-3">
+               <button
+diff --git a/components/TripLogbook.tsx b/components/TripLogbook.tsx
+index 1e35376..80db824 100644
+--- a/components/TripLogbook.tsx
++++ b/components/TripLogbook.tsx
+@@ -553,8 +553,8 @@ const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLo
+               <div key={trip.id} className="px-4 py-3">
+                 <div className="flex justify-between items-start">
+                   <div className="flex-1 min-w-0">
+-                    <p className="text-sm font-medium text-gray-900 truncate">{trip.destination}</p>
+-                    <p className="text-xs text-gray-500 truncate">From: {trip.origin}</p>
++                    <p className="text-sm font-medium text-gray-900 max-h-10 overflow-y-auto whitespace-normal break-words scrollbar-hide">{trip.destination}</p>
++                    <p className="text-xs text-gray-500 max-h-10 overflow-y-auto whitespace-normal break-words scrollbar-hide">From: {trip.origin}</p>
+                   </div>
+                   <div className="text-right ml-4">
+                     <p className="text-sm font-bold text-gray-900">{trip.distanceKm.toFixed(1)} km</p>

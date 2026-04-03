@@ -553,8 +553,8 @@ const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLo
               <div key={trip.id} className="px-4 py-3">
                 <div className="flex justify-between items-start">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{trip.destination}</p>
-                    <p className="text-xs text-gray-500 truncate">From: {trip.origin}</p>
+                    <p className="text-sm font-medium text-gray-900 max-h-10 overflow-y-auto whitespace-normal break-words scrollbar-hide">{trip.destination}</p>
+                    <p className="text-xs text-gray-500 max-h-10 overflow-y-auto whitespace-normal break-words scrollbar-hide">From: {trip.origin}</p>
                   </div>
                   <div className="text-right ml-4">
                     <p className="text-sm font-bold text-gray-900">{trip.distanceKm.toFixed(1)} km</p>

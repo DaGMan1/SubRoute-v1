@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="SubRoute - The toolkit for Australian courier drivers. Route planning, trip logging, and vehicle tracking." />
     <meta name="theme-color" content="#0052CC" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -44,6 +44,62 @@
     </script>
 
     <style>
+      /* Global mobile resets */
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* Safe area insets for notched phones */
+      .safe-bottom {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      .safe-top {
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+      .safe-left {
+        padding-left: env(safe-area-inset-left, 0px);
+      }
+      .safe-right {
+        padding-right: env(safe-area-inset-right, 0px);
+      }
+
+      /* Minimum touch target size */
+      @media (max-width: 768px) {
+        button, a, [role="button"], input[type="submit"], input[type="button"] {
+          min-height: 44px;
+          min-width: 44px;
+        }
+      }
+
+      /* Hide scrollbar utility */
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+      /* Prevent horizontal overflow */
+      @media (max-width: 768px) {
+        .overflow-x-auto {
+          -webkit-overflow-scrolling: touch;
+        }
+      }
+
       /* Custom styles for Google Places Autocomplete - Mobile Friendly */
       .pac-container {
         font-size: 16px !important;

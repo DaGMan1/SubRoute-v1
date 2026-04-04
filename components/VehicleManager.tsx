@@ -175,15 +175,15 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto w-full px-4 py-8">
+      <div className="w-full px-3 sm:px-4 py-4 sm:py-6">
         {/* Add/Edit Form */}
         {isAdding && (
-          <div className="bg-white rounded-lg shadow-sm border border-brand-gray-200 p-6 mb-6">
-            <h2 className="text-xl font-bold text-brand-gray-900 mb-4">
+          <div className="bg-white rounded-lg shadow-sm border border-brand-gray-200 p-4 sm:p-6 mb-4 sm:mb-6">
+            <h2 className="text-lg sm:text-xl font-bold text-brand-gray-900 mb-4">
               {editingId ? 'Edit Vehicle' : 'Add New Vehicle'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="make" className="block text-sm font-medium text-brand-gray-700 mb-1">
                     Make
@@ -194,7 +194,7 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
                     value={make}
                     onChange={e => setMake(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
+                    className="w-full px-3 py-2.5 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue text-base"
                     placeholder="Toyota"
                   />
                 </div>
@@ -208,13 +208,13 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
                     value={model}
                     onChange={e => setModel(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
+                    className="w-full px-3 py-2.5 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue text-base"
                     placeholder="Hiace"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label htmlFor="year" className="block text-sm font-medium text-brand-gray-700 mb-1">
                     Year (Optional)
@@ -224,7 +224,7 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
                     id="year"
                     value={year}
                     onChange={e => setYear(e.target.value)}
-                    className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
+                    className="w-full px-3 py-2.5 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue text-base"
                     placeholder="2020"
                   />
                 </div>
@@ -238,7 +238,7 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
                     value={plate}
                     onChange={e => setPlate(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
+                    className="w-full px-3 py-2.5 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue text-base"
                     placeholder="ABC123"
                   />
                 </div>
@@ -252,7 +252,7 @@ export const VehicleManager: React.FC<VehicleManagerProps> = ({ onBack, user }) 
                     value={odometer}
                     onChange={e => setOdometer(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue"
+                    className="w-full px-3 py-2.5 border border-brand-gray-300 rounded-md shadow-sm focus:ring-brand-blue focus:border-brand-blue text-base"
                     placeholder="0"
                   />
                 </div>

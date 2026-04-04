@@ -217,7 +217,7 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
 
   if (loading) {
     return (
-      <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 items-center justify-center">
+      <div className="flex flex-col h-[calc(100dvh-64px)] bg-gray-50 items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue"></div>
         <p className="mt-4 text-brand-gray-600">Loading...</p>
       </div>
@@ -226,7 +226,7 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
 
   if (!activeVehicle) {
     return (
-      <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 items-center justify-center p-4">
+      <div className="flex flex-col h-[calc(100dvh-64px)] bg-gray-50 items-center justify-center p-4">
         <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
         </svg>
@@ -236,29 +236,29 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50">
+    <div className="flex flex-col h-[calc(100dvh-64px)] bg-gray-50">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-center bg-white shadow-sm">
-        <h1 className="text-xl font-bold text-gray-900">Odometer & Fuel Tracking</h1>
+      <div className="px-3 py-3 border-b border-gray-200 flex items-center justify-center bg-white shadow-sm">
+        <h1 className="text-lg sm:text-xl font-bold text-gray-900">Odometer & Fuel Tracking</h1>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
 
         {/* Current Odometer Card */}
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-xl shadow-lg p-6">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-xl shadow-lg p-4 sm:p-6">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-blue-100 text-sm font-medium uppercase tracking-wide">Current Odometer</span>
+            <span className="text-blue-100 text-xs sm:text-sm font-medium uppercase tracking-wide">Current Odometer</span>
             {activeVehicle && (
               <span className="text-blue-100 text-xs">{activeVehicle.make} {activeVehicle.model}</span>
             )}
           </div>
-          <div className="text-5xl font-black mb-1">
+          <div className="text-4xl sm:text-5xl font-black mb-1">
             {currentOdometer.toLocaleString()}
-            <span className="text-2xl ml-2 font-normal text-blue-200">km</span>
+            <span className="text-xl sm:text-2xl ml-2 font-normal text-blue-200">km</span>
           </div>
           {fuelEconomy && (
-            <div className="mt-4 pt-4 border-t border-blue-500 grid grid-cols-2 gap-4 text-sm">
+            <div className="mt-4 pt-4 border-t border-blue-500 grid grid-cols-2 gap-3 sm:gap-4 text-sm">
               <div>
                 <div className="text-blue-200">Fuel Economy</div>
                 <div className="text-xl font-bold">{fuelEconomy.litersPer100km} <span className="text-sm font-normal">L/100km</span></div>
@@ -293,17 +293,17 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
         )}
 
         {/* Add Fuel Stop */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-5">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Record Fuel Stop</h2>
           <form onSubmit={handleAddFuelStop} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Odometer Reading (km) *</label>
                 <input
                   type="number"
                   step="0.1"
                   required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-base"
                   value={inputOdometer}
                   onChange={e => setInputOdometer(e.target.value)}
                   placeholder="123456"
@@ -314,20 +314,20 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-base"
                   value={inputLiters}
                   onChange={e => setInputLiters(e.target.value)}
                   placeholder="45.5"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cost (AUD)</label>
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-base"
                   value={inputCost}
                   onChange={e => setInputCost(e.target.value)}
                   placeholder="85.00"
@@ -337,7 +337,7 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Location</label>
                 <input
                   type="text"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-base"
                   value={inputLocation}
                   onChange={e => setInputLocation(e.target.value)}
                   placeholder="Shell North Lakes"
@@ -354,21 +354,21 @@ export const OdometerTracker: React.FC<OdometerTrackerProps> = ({ user, onBack }
         </div>
 
         {/* Fuel Stop History */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-5">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Fuel Stop History</h2>
           {fuelStops.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-4">No fuel stops recorded yet.</p>
           ) : (
             <div className="space-y-3">
               {fuelStops.map(stop => (
-                <div key={stop.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                <div key={stop.id} className="border border-gray-200 rounded-lg p-3 sm:p-4 hover:bg-gray-50">
                   <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
-                        <span className="text-2xl font-bold text-gray-900">{stop.odometerReading.toLocaleString()} km</span>
-                        <span className="text-gray-400 text-sm">{new Date(stop.timestamp).toLocaleDateString()}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2 sm:space-x-3 mb-2">
+                        <span className="text-xl sm:text-2xl font-bold text-gray-900">{stop.odometerReading.toLocaleString()} km</span>
+                        <span className="text-gray-400 text-xs sm:text-sm whitespace-nowrap">{new Date(stop.timestamp).toLocaleDateString()}</span>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4 text-sm">
                         {stop.liters && (
                           <div>
                             <span className="text-gray-500">Liters:</span>

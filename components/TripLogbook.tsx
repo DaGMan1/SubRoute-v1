@@ -329,15 +329,17 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             {/* Left: Menu + Title */}
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                </svg>
-              </button>
+            <div className="relative flex items-center space-x-3">
+              <div className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-800 py-2 px-2 min-h-[44px]"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                  </svg>
+                </button>
+              </div>
               <div>
                 <h1 className="text-xl font-bold text-brand-gray-900">{getViewLabel()}</h1>
               </div>
@@ -366,7 +368,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
             className="fixed inset-0 bg-black bg-opacity-25 z-30"
             onClick={() => setShowMenu(false)}
           ></div>
-          <div className="fixed top-16 left-4 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-40 w-56">
+          <div className="fixed top-14 left-3 md:left-4 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-40 w-56">
             <button
               onClick={() => { setViewMode('today'); setShowMenu(false); }}
               className={`w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center space-x-3 ${viewMode === 'today' ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
@@ -432,7 +434,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
       )}
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto w-full px-4 py-6 flex-1">
+      <div className="w-full px-3 sm:px-4 md:px-6 py-4 sm:py-6 flex-1">
         {viewMode === 'today' && <TodaySummaryView summary={getTodaySummary()} allLogs={logs} fuelStats={fuelStats} />}
         {viewMode === 'individual' && <IndividualTripsView logs={logs} />}
         {viewMode === 'daily' && <DailySummaryView summaries={getDailySummaries()} />}
@@ -589,7 +591,7 @@ const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLo
               <span>Fuel Economy</span>
             </h3>
           </div>
-          <div className="grid grid-cols-3 gap-4 p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 p-3 sm:p-4">
             <div className="text-center">
               <p className="text-xs text-gray-500">Avg km/tank</p>
               <p className="text-xl font-bold text-orange-600">{fuelStats.avgKmPerTank.toFixed(0)}</p>
@@ -794,7 +796,7 @@ const MonthlySummaryView: React.FC<{ months: { month: string; summaries: DailySu
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-100">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 pt-4 border-t border-gray-100">
               <div className="text-center">
                 <p className="text-xs text-gray-500">Avg/Day</p>
                 <p className="font-bold text-gray-900">{(monthData.totalDistance / monthData.totalDays).toFixed(1)} km</p>

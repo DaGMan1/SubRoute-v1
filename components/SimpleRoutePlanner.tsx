@@ -77,6 +77,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [fuelStopSaving, setFuelStopSaving] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
+  // Mobile tab state
+  const [mobileTab, setMobileTab] = useState<'stops' | 'map' | 'route'>('stops');
+
   // Point-to-point trip tracking
   const [activeTrip, setActiveTrip] = useState<{
     origin: string;
@@ -1340,23 +1343,24 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-gray-50 relative">
+    <div className="flex h-[calc(100vh-64px)] h-[calc(100dvh-64px)] bg-gray-50 relative">
+      {/* ===== DESKTOP LAYOUT (md and up): sidebar + map ===== */}
       {/* Left Sidebar - Stops List */}
-      <div className="w-full md:w-80 bg-white md:border-r border-gray-200 flex flex-col shadow-lg">
+      <div className="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg hidden md:flex">
         {/* Search and Controls */}
         <div className="p-4 border-b border-gray-200">
 
           {/* Search Box */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
               </svg>
             </div>
             <input
               ref={searchInputRef}
               type="text"
-              className="block w-full pl-12 pr-14 py-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+              className="block w-full pl-11 pr-14 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               placeholder="Search address..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
@@ -1370,14 +1374,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               }`}
               title={isListening ? 'Listening...' : 'Voice input'}
             >
-              <svg className="h-7 w-7 md:h-5 md:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
               </svg>
             </button>
 
             {/* Voice Search Results Dropdown */}
             {voiceSearchResults.length > 0 && (
-              <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-72 overflow-y-auto">
+              <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto">
                 <div className="flex justify-end px-2 pt-1.5">
                   <button
                     onClick={() => setVoiceSearchResults([])}
@@ -1392,10 +1396,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   <button
                     key={prediction.place_id}
                     onClick={() => selectVoiceResult(prediction)}
-                    className="w-full text-left px-4 py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                    className="w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors"
                   >
-                    <p className="text-base font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
-                    <p className="text-sm text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
+                    <p className="text-sm font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
                   </button>
                 ))}
               </div>
@@ -1403,8 +1407,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
             {/* Address History Dropdown */}
             {showHistory && addressHistory.length > 0 && voiceSearchResults.length === 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-80 overflow-y-auto">
-                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl">
+              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Recent</p>
                 </div>
                 {addressHistory.slice(0, 10).map((item) => (
@@ -1412,29 +1416,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     key={item.id}
                     className="border-b border-gray-100 last:border-b-0"
                   >
-                    <div className="px-4 py-3">
-                      <div className="flex items-center justify-between mb-2.5">
-                        <p className="text-base font-medium text-gray-900 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide flex-1 leading-tight">{item.address}</p>
-                        <button
-                          onClick={() => openSaveFavoriteModal(item.address, item.location)}
-                          className="ml-3 text-gray-300 hover:text-yellow-500 flex-shrink-0 p-1"
-                          title="Save as favorite"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
-                          </svg>
-                        </button>
-                      </div>
-                      <div className="flex gap-2">
+                    <div className="px-4 py-2.5">
+                      <p className="text-sm font-medium text-gray-900 truncate">{item.address}</p>
+                      <div className="flex gap-2 mt-2">
                         <button
                           onClick={() => addFromHistory(item, 'pickup')}
-                          className="flex-1 py-3 bg-amber-500 text-white rounded-xl text-sm font-bold hover:bg-amber-600 active:scale-95 transition-all"
+                          className="flex-1 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 active:scale-95 transition-all"
                         >
                           Pickup
                         </button>
                         <button
                           onClick={() => addFromHistory(item, 'delivery')}
-                          className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 active:scale-95 transition-all"
+                          className="flex-1 py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 active:scale-95 transition-all"
                         >
                           Delivery
                         </button>
@@ -1447,13 +1440,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
           </div>
 
           {/* Quick Action Toolbar */}
-          <div className="mt-2 flex items-center gap-1.5">
+          <div className="mt-3 flex items-center gap-2">
             <button
               onClick={addCurrentLocation}
               title="Add current location as a stop"
-              className="flex-1 flex items-center justify-center py-3.5 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-500 rounded-xl transition-colors"
+              className="flex-1 flex items-center justify-center py-2.5 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-500 rounded-lg transition-colors"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
               </svg>
@@ -1461,13 +1454,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <button
               onClick={toggleTrafficLayer}
               title={showTraffic ? 'Hide traffic layer' : 'Show traffic layer'}
-              className={`flex-1 flex items-center justify-center py-3.5 rounded-xl transition-colors ${
+              className={`flex-1 flex items-center justify-center py-2.5 rounded-lg transition-colors ${
                 showTraffic
                   ? 'bg-red-100 text-red-700 hover:bg-red-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
               </svg>
             </button>
@@ -1475,9 +1468,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               <button
                 onClick={openFuelStopModal}
                 title="Log fuel stop"
-                className="flex-1 flex items-center justify-center py-3.5 bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-orange-600 rounded-xl transition-colors"
+                className="flex-1 flex items-center justify-center py-2.5 bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-orange-600 rounded-lg transition-colors"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                 </svg>
               </button>
@@ -1485,13 +1478,13 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             <button
               onClick={() => setShowDepotModal(true)}
               title={depotAddress ? `Depot: ${depotAddress.address}` : 'Set depot address'}
-              className={`flex-1 flex items-center justify-center py-3.5 rounded-xl transition-colors ${
+              className={`flex-1 flex items-center justify-center py-2.5 rounded-lg transition-colors ${
                 depotAddress
                   ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
               </svg>
             </button>
@@ -1500,8 +1493,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
           {/* Favorites — horizontal scrollable chips */}
           {favorites.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-gray-100">
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
                 {favorites.map((fav) => (
                   <button
                     key={fav.id}
@@ -1521,10 +1514,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         </div>
 
         {/* Stops List */}
-        <div className="flex-1 overflow-y-auto p-3 max-h-[40vh] md:max-h-none">
+        <div className="flex-1 overflow-y-auto p-3">
           {stops.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <svg className="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-12 text-gray-400">
+              <svg className="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
               </svg>
               <p className="text-sm font-medium text-gray-500">No stops added yet</p>
@@ -1544,24 +1537,24 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   return (
                     <div
                       key={stop.id}
-                      className="flex items-center gap-2 px-3 py-3.5 bg-gray-50 border border-gray-200 rounded-xl opacity-60"
+                      className="flex items-center gap-2 px-3 py-3 bg-gray-50 border border-gray-200 rounded-lg opacity-60"
                     >
                       <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
                       </svg>
-                      <p className="flex-1 text-sm text-gray-500 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide">{stop.address}</p>
+                      <p className="flex-1 text-sm text-gray-500 truncate">{stop.address}</p>
                       <button
                         onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                        className="flex-shrink-0 text-sm font-semibold text-blue-600 hover:text-blue-800 px-3 py-2 rounded-xl hover:bg-blue-50 transition-colors"
+                        className="flex-shrink-0 text-sm font-semibold text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
                       >
                         Again
                       </button>
                       <button
                         onClick={() => openSaveFavoriteModal(stop.address, stop.location)}
-                        className="flex-shrink-0 text-gray-300 hover:text-yellow-500 transition-colors p-1.5"
+                        className="flex-shrink-0 text-gray-300 hover:text-yellow-500 transition-colors p-1"
                         title="Save as favorite"
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
                         </svg>
                       </button>
@@ -1569,39 +1562,39 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   );
                 }
 
-                // Active en-route card — blue left border, DONE button
+                // Active en-route card
                 if (isActiveDestination) {
                   return (
                     <div
                       key={stop.id}
                       draggable={false}
-                      className="flex items-stretch bg-white border border-blue-300 rounded-xl shadow-sm overflow-hidden"
+                      className="flex items-stretch bg-white border border-blue-300 rounded-lg shadow-sm overflow-hidden"
                     >
-                      <div className="w-1.5 bg-blue-500 flex-shrink-0" />
-                      <div className="flex-1 flex items-center gap-3 px-3 py-4">
+                      <div className="w-1 bg-blue-500 flex-shrink-0" />
+                      <div className="flex-1 flex items-center gap-3 px-3 py-3">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide leading-snug">{stop.address}</p>
-                          <div className="flex items-center gap-1.5 mt-1.5">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{stop.address}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
                             {(isPickup || isDelivery) && (
                               <button
                                 onClick={() => toggleStopType(stop.id)}
-                                className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                                className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                                   isPickup ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
                                 }`}
                               >
                                 {isPickup ? 'Pickup' : 'Delivery'}
                               </button>
                             )}
-                            {isDepot && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                            {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
                             <span className="flex items-center gap-1 text-xs text-blue-600 font-semibold">
-                              <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse inline-block" />
+                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse inline-block" />
                               En Route
                             </span>
                           </div>
                         </div>
                         <button
                           onClick={() => manualCompleteStop(stop)}
-                          className="flex-shrink-0 px-5 py-3.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
+                          className="flex-shrink-0 px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all shadow-sm"
                         >
                           Done
                         </button>
@@ -1619,40 +1612,40 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     onDragStart={() => handleDragStart(originalIndex)}
                     onDragOver={(e) => handleDragOver(e, originalIndex)}
                     onDrop={(e) => handleDrop(e, originalIndex)}
-                    className="flex items-center gap-2 px-3 py-4 bg-white border border-gray-200 rounded-xl shadow-sm cursor-move hover:border-gray-300 transition-colors"
+                    className="flex items-center gap-2 px-3 py-3 bg-white border border-gray-200 rounded-lg shadow-sm cursor-move hover:border-gray-300 transition-colors"
                   >
-                    <div className={`w-7 h-7 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                    <div className={`w-6 h-6 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
                       {originalIndex + 1}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide leading-snug">{stop.address}</p>
+                      <p className="text-sm font-semibold text-gray-900 truncate">{stop.address}</p>
                       {(isPickup || isDelivery || isDepot) && (
-                        <div className="mt-1">
+                        <div className="mt-0.5">
                           {(isPickup || isDelivery) && (
                             <button
                               onClick={() => toggleStopType(stop.id)}
-                              className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                              className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                                 isPickup ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
                               } transition-colors`}
                             >
                               {isPickup ? 'Pickup' : 'Delivery'}
                             </button>
                           )}
-                          {isDepot && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                          {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
                         </div>
                       )}
                     </div>
                     <button
                       onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                      className="flex-shrink-0 px-5 py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
+                      className="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all shadow-sm"
                     >
                       GO
                     </button>
                     <button
                       onClick={() => removeStop(stop.id)}
-                      className="flex-shrink-0 text-gray-300 hover:text-red-500 p-2 transition-colors"
+                      className="flex-shrink-0 text-gray-300 hover:text-red-500 p-1 transition-colors"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                       </svg>
                     </button>
@@ -1666,7 +1659,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         {/* Footer */}
         {stops.length > 0 && (
           <div className="px-3 py-3 border-t border-gray-100 bg-white space-y-2">
-            {/* Stop summary + Optimize */}
             {(() => {
               const pickupCount = stops.filter(s => s.type === 'pickup').length;
               const deliveryCount = stops.filter(s => s.type === 'delivery').length;
@@ -1722,7 +1714,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               );
             })()}
 
-            {/* Route details */}
             {routeDetails && (
               <div className={`rounded-lg px-3 py-2 flex items-center justify-between text-sm ${activeTrip ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
                 <span className={`font-semibold ${activeTrip ? 'text-green-800' : 'text-gray-700'}`}>{routeDetails.distance}</span>
@@ -1736,7 +1727,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </div>
             )}
 
-            {/* Clear all — subtle text link */}
             <div className="text-center">
               <button
                 onClick={clearAll}
@@ -1754,19 +1744,492 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         <div ref={mapRef} className="absolute inset-0" />
       </div>
 
-      {/* Pickup / Delivery Bottom Sheet — floats above everything, search bar stays free */}
+      {/* ===== MOBILE LAYOUT: tabbed interface ===== */}
+      <div className="flex flex-col w-full md:hidden">
+        {/* Mobile Tab Content */}
+        <div className="flex-1 overflow-hidden">
+          {/* STOPS TAB */}
+          {mobileTab === 'stops' && (
+            <div className="flex flex-col h-full">
+              {/* Search Section */}
+              <div className="p-3 border-b border-gray-200 bg-white flex-shrink-0">
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                  </div>
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    className="block w-full pl-10 pr-14 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                    placeholder="Search address..."
+                    value={searchValue}
+                    onChange={(e) => setSearchValue(e.target.value)}
+                    onFocus={() => setShowHistory(true)}
+                    onBlur={() => setTimeout(() => setShowHistory(false), 200)}
+                  />
+                  <button
+                    onClick={startVoiceInput}
+                    className={`absolute inset-y-0 right-0 pr-3 flex items-center w-12 justify-center ${
+                      isListening ? 'text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600'
+                    }`}
+                    title={isListening ? 'Listening...' : 'Voice input'}
+                  >
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
+                  </button>
+
+                  {/* Voice Search Results */}
+                  {voiceSearchResults.length > 0 && (
+                    <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                      <div className="flex justify-end px-2 pt-1.5">
+                        <button onClick={() => setVoiceSearchResults([])} className="p-1.5 text-gray-400 hover:text-gray-600">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      {voiceSearchResults.map((prediction) => (
+                        <button
+                          key={prediction.place_id}
+                          onClick={() => selectVoiceResult(prediction)}
+                          className="w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
+                        >
+                          <p className="text-sm font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Address History */}
+                  {showHistory && addressHistory.length > 0 && voiceSearchResults.length === 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-72 overflow-y-auto">
+                      <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50 rounded-t-xl">
+                        <p className="text-xs font-bold text-gray-500 uppercase">Recent</p>
+                      </div>
+                      {addressHistory.slice(0, 8).map((item) => (
+                        <div key={item.id} className="border-b border-gray-100 last:border-b-0">
+                          <div className="px-4 py-3">
+                            <p className="text-sm font-medium text-gray-900 line-clamp-2">{item.address}</p>
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => addFromHistory(item, 'pickup')}
+                                className="flex-1 py-2.5 bg-amber-500 text-white rounded-lg text-xs font-bold active:scale-95"
+                              >
+                                Pickup
+                              </button>
+                              <button
+                                onClick={() => addFromHistory(item, 'delivery')}
+                                className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-xs font-bold active:scale-95"
+                              >
+                                Delivery
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick Actions */}
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button
+                    onClick={addCurrentLocation}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-600 rounded-xl transition-colors text-xs font-medium"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    Location
+                  </button>
+                  <button
+                    onClick={toggleTrafficLayer}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl transition-colors text-xs font-medium ${
+                      showTraffic ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                    Traffic
+                  </button>
+                  {activeTrip && (
+                    <button
+                      onClick={openFuelStopModal}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gray-100 text-gray-600 hover:bg-orange-50 hover:text-orange-600 rounded-xl transition-colors text-xs font-medium"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                      </svg>
+                      Fuel
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowDepotModal(true)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl transition-colors text-xs font-medium ${
+                      depotAddress ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                    </svg>
+                    Depot
+                  </button>
+                </div>
+
+                {/* Favorites */}
+                {favorites.length > 0 && (
+                  <div className="mt-2.5 pt-2.5 border-t border-gray-100">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                      {favorites.map((fav) => (
+                        <button
+                          key={fav.id}
+                          onClick={() => setPendingStop({ address: fav.address, location: fav.location })}
+                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 text-yellow-900 text-xs font-semibold rounded-full"
+                        >
+                          <svg className="w-3 h-3 text-yellow-500 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                          </svg>
+                          <span className="truncate max-w-[80px]">{fav.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Stops List */}
+              <div className="flex-1 overflow-y-auto p-3 bg-gray-50">
+                {stops.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400">
+                    <svg className="w-14 h-14 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                    </svg>
+                    <p className="text-sm font-medium text-gray-500">No stops added yet</p>
+                    <p className="text-xs mt-1 text-gray-400">Search an address above to get started</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {[...stops].reverse().map((stop, displayIndex) => {
+                      const originalIndex = stops.length - 1 - displayIndex;
+                      const isPickup = stop.type === 'pickup';
+                      const isDelivery = stop.type === 'delivery';
+                      const isDepot = stop.type === 'depot';
+                      const isCompleted = completedStops.has(stop.id);
+                      const isActiveDestination = activeTrip?.destinationStopId === stop.id;
+
+                      if (isCompleted) {
+                        return (
+                          <div key={stop.id} className="flex items-center gap-2 px-3 py-3 bg-gray-100 border border-gray-200 rounded-xl opacity-60">
+                            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                            </svg>
+                            <p className="flex-1 text-sm text-gray-500 line-clamp-2">{stop.address}</p>
+                            <button onClick={() => startNavigationToStop(stop, preferredNavApp)} className="flex-shrink-0 text-sm font-semibold text-blue-600 px-3 py-2 rounded-lg bg-blue-50">
+                              Again
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      if (isActiveDestination) {
+                        return (
+                          <div key={stop.id} className="flex items-stretch bg-white border-2 border-blue-400 rounded-xl shadow-md overflow-hidden">
+                            <div className="w-1.5 bg-blue-500 flex-shrink-0" />
+                            <div className="flex-1 flex items-center gap-3 px-3 py-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 line-clamp-2">{stop.address}</p>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  {(isPickup || isDelivery) && (
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isPickup ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+                                      {isPickup ? 'Pickup' : 'Delivery'}
+                                    </span>
+                                  )}
+                                  {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
+                                  <span className="flex items-center gap-1 text-xs text-blue-600 font-semibold">
+                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse inline-block" />
+                                    En Route
+                                  </span>
+                                </div>
+                              </div>
+                              <button onClick={() => manualCompleteStop(stop)} className="flex-shrink-0 px-5 py-3 bg-green-600 text-white text-sm font-bold rounded-xl active:scale-95">
+                                Done
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const numColor = isPickup ? 'bg-amber-500' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-500' : 'bg-blue-600';
+                      return (
+                        <div key={stop.id} className="flex items-center gap-2.5 px-3 py-3 bg-white border border-gray-200 rounded-xl shadow-sm">
+                          <div className={`w-7 h-7 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                            {originalIndex + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 line-clamp-2">{stop.address}</p>
+                            {(isPickup || isDelivery) && (
+                              <button onClick={() => toggleStopType(stop.id)} className={`text-xs font-bold px-2 py-0.5 rounded-full mt-1 ${isPickup ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+                                {isPickup ? 'Pickup' : 'Delivery'}
+                              </button>
+                            )}
+                            {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 mt-1 inline-block">Depot</span>}
+                          </div>
+                          <button onClick={() => startNavigationToStop(stop, preferredNavApp)} className="flex-shrink-0 px-4 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl active:scale-95">
+                            GO
+                          </button>
+                          <button onClick={() => removeStop(stop.id)} className="flex-shrink-0 text-gray-400 hover:text-red-500 p-2">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Summary */}
+              {stops.length > 0 && (
+                <div className="px-3 py-3 border-t border-gray-200 bg-white flex-shrink-0 safe-bottom">
+                  {(() => {
+                    const pickupCount = stops.filter(s => s.type === 'pickup').length;
+                    const deliveryCount = stops.filter(s => s.type === 'delivery').length;
+                    return (
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3 text-xs font-medium">
+                          {pickupCount > 0 && <span className="text-amber-700">{pickupCount}P</span>}
+                          {deliveryCount > 0 && <span className="text-green-700">{deliveryCount}D</span>}
+                          {pickupCount === 0 && deliveryCount === 0 && <span className="text-gray-500">{stops.length} stops</span>}
+                        </div>
+                        {routeDetails && (
+                          <div className="flex items-center gap-3 text-sm font-semibold">
+                            <span className="text-gray-700">{routeDetails.distance}</span>
+                            <span className="text-gray-700">{routeDetails.duration}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <button onClick={clearAll} className="w-full py-2.5 text-xs text-gray-500 hover:text-red-500 font-medium">
+                    Clear all stops
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MAP TAB */}
+          {mobileTab === 'map' && (
+            <div className="h-full relative">
+              <div ref={mapRef} className="absolute inset-0" />
+              {/* Quick info overlay */}
+              {routeDetails && (
+                <div className="absolute top-3 left-3 right-3 bg-white rounded-xl shadow-lg border border-gray-200 px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-700">{routeDetails.distance}</span>
+                    {activeTrip && (
+                      <span className="flex items-center gap-1.5 text-xs text-green-700 font-medium">
+                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                        Tracking
+                      </span>
+                    )}
+                    <span className="text-sm font-semibold text-gray-700">{routeDetails.duration}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ROUTE TAB */}
+          {mobileTab === 'route' && (
+            <div className="flex flex-col h-full bg-gray-50">
+              <div className="flex-1 overflow-y-auto p-4">
+                {stops.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400">
+                    <svg className="w-14 h-14 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                    </svg>
+                    <p className="text-sm font-medium text-gray-500">No route yet</p>
+                    <p className="text-xs mt-1 text-gray-400">Add stops from the Stops tab</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Route Summary Card */}
+                    {routeDetails && (
+                      <div className={`rounded-xl px-4 py-4 border ${activeTrip ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase font-medium">Distance</p>
+                            <p className={`text-xl font-bold ${activeTrip ? 'text-green-800' : 'text-gray-900'}`}>{routeDetails.distance}</p>
+                          </div>
+                          {activeTrip && (
+                            <span className="flex items-center gap-1.5 text-xs text-green-700 font-medium bg-green-100 px-3 py-1 rounded-full">
+                              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                              Tracking
+                            </span>
+                          )}
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500 uppercase font-medium">Duration</p>
+                            <p className={`text-xl font-bold ${activeTrip ? 'text-green-800' : 'text-gray-900'}`}>{routeDetails.duration}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-600">
+                          <span>{stops.length} stops</span>
+                          <span className="text-gray-300">|</span>
+                          <span>{stops.filter(s => s.type === 'pickup').length} pickups</span>
+                          <span className="text-gray-300">|</span>
+                          <span>{stops.filter(s => s.type === 'delivery').length} deliveries</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Optimize Route */}
+                    {stops.filter(s => !completedStops.has(s.id)).length >= 3 && (
+                      <button
+                        onClick={optimizeRouteWithDirections}
+                        disabled={isOptimizing}
+                        className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+                      >
+                        {isOptimizing ? (
+                          <>
+                            <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                            Optimizing route...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                            Optimize Route
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {/* Stop List */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                        <p className="text-sm font-semibold text-gray-700">All Stops</p>
+                      </div>
+                      <div className="divide-y divide-gray-100">
+                        {stops.map((stop, index) => {
+                          const isCompleted = completedStops.has(stop.id);
+                          const isActive = activeTrip?.destinationStopId === stop.id;
+                          const isPickup = stop.type === 'pickup';
+                          const isDelivery = stop.type === 'delivery';
+                          const isDepot = stop.type === 'depot';
+                          const numColor = isPickup ? 'bg-amber-500' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-500' : 'bg-blue-600';
+
+                          return (
+                            <div key={stop.id} className={`px-4 py-3 flex items-center gap-3 ${isCompleted ? 'opacity-50' : ''} ${isActive ? 'bg-blue-50' : ''}`}>
+                              <div className={`w-7 h-7 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0 ${isCompleted ? 'bg-green-500' : ''}`}>
+                                {isCompleted ? (
+                                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                                  </svg>
+                                ) : (
+                                  index + 1
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 line-clamp-2">{stop.address}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {(isPickup || isDelivery) && (
+                                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${isPickup ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'}`}>
+                                      {isPickup ? 'Pickup' : 'Delivery'}
+                                    </span>
+                                  )}
+                                  {isDepot && <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">Depot</span>}
+                                  {isActive && <span className="text-xs font-medium text-blue-600">En Route</span>}
+                                  {isCompleted && <span className="text-xs font-medium text-green-600">Completed</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Clear All */}
+                    <button
+                      onClick={clearAll}
+                      className="w-full py-3.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-xl active:scale-[0.98] transition-all"
+                    >
+                      Clear All Stops
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile Tab Bar */}
+        <div className="flex border-t border-gray-200 bg-white flex-shrink-0 safe-bottom">
+          <button
+            onClick={() => setMobileTab('stops')}
+            className={`flex-1 flex flex-col items-center justify-center py-2.5 min-h-[56px] transition-colors ${
+              mobileTab === 'stops' ? 'text-blue-600' : 'text-gray-500'
+            }`}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+            <span className="text-xs font-medium mt-0.5">Stops</span>
+            {stops.length > 0 && (
+              <span className="absolute top-1.5 ml-5 w-4 h-4 bg-blue-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {stops.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setMobileTab('map')}
+            className={`flex-1 flex flex-col items-center justify-center py-2.5 min-h-[56px] relative transition-colors ${
+              mobileTab === 'map' ? 'text-blue-600' : 'text-gray-500'
+            }`}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 011.447-.894L9 9m0 11l6-3m-6 3V9m6 8l5.447 2.724A1 1 0 0021 16.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+            </svg>
+            <span className="text-xs font-medium mt-0.5">Map</span>
+          </button>
+          <button
+            onClick={() => setMobileTab('route')}
+            className={`flex-1 flex flex-col items-center justify-center py-2.5 min-h-[56px] relative transition-colors ${
+              mobileTab === 'route' ? 'text-blue-600' : 'text-gray-500'
+            }`}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+            </svg>
+            <span className="text-xs font-medium mt-0.5">Route</span>
+            {activeTrip && (
+              <span className="absolute top-1.5 right-6 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Pickup / Delivery Bottom Sheet */}
       {pendingStop && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setPendingStop(null)}>
-          {/* Tap-to-dismiss backdrop */}
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative bg-white rounded-t-3xl shadow-2xl px-4 pt-3 pb-10 safe-area-inset-bottom"
+            className="relative bg-white rounded-t-2xl shadow-2xl px-4 pt-3 pb-6 safe-bottom"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Handle */}
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
-            {/* Address */}
-            <p className="text-base font-bold text-gray-900 mb-0.5 max-h-12 overflow-y-auto whitespace-normal break-words scrollbar-hide">{pendingStop.address}</p>
+            <p className="text-sm font-bold text-gray-900 mb-1 line-clamp-2">{pendingStop.address}</p>
             <p className="text-sm text-gray-500 mb-5">Add as pickup or delivery?</p>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -1800,14 +2263,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       {/* Depot Address Modal */}
       {showDepotModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="p-6">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-t-2xl md:rounded-lg shadow-xl w-full md:max-w-md safe-bottom md:safe-bottom-0">
+            <div className="p-5">
+              <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4 md:hidden" />
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-gray-900">Set Depot Address</h2>
+                <h2 className="text-lg font-bold text-gray-900">Set Depot Address</h2>
                 <button
                   onClick={() => setShowDepotModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 p-2 -mr-2 -mt-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -1828,7 +2292,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 <input
                   ref={depotSearchRef}
                   type="text"
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-base"
                   placeholder="Search for depot address..."
                   value={depotSearchValue}
                   onChange={(e) => setDepotSearchValue(e.target.value)}
@@ -1839,7 +2303,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <button
                     onClick={clearDepot}
-                    className="text-sm text-red-600 hover:underline"
+                    className="text-sm text-red-600 hover:underline py-2"
                   >
                     Clear Depot Address
                   </button>
@@ -1852,15 +2316,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       {/* Save Favorite Modal */}
       {showFavoriteModal && favoriteToSave && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="p-6">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-t-2xl md:rounded-lg shadow-xl w-full md:max-w-md safe-bottom md:safe-bottom-0">
+            <div className="p-5">
+              <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4 md:hidden" />
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-                  <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
                   </svg>
-                  <span>Save as Favorite</span>
+                  Save as Favorite
                 </h2>
                 <button
                   onClick={() => {
@@ -1868,7 +2333,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     setFavoriteToSave(null);
                     setFavoriteName('');
                   }}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 p-2 -mr-2 -mt-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -1878,18 +2343,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
               <div className="mb-4">
                 <p className="text-sm text-gray-600 mb-2">Address:</p>
-                <p className="text-sm font-medium text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                <p className="text-sm font-medium text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-200 line-clamp-2">
                   {favoriteToSave.address}
                 </p>
               </div>
 
-              <div className="mb-6">
+              <div className="mb-5">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Give this favorite a name
                 </label>
                 <input
                   type="text"
-                  className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                  className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-base"
                   placeholder="e.g., Depot, Client - Joe's Pizza"
                   value={favoriteName}
                   onChange={(e) => setFavoriteName(e.target.value)}
@@ -1902,20 +2367,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 />
               </div>
 
-              <div className="flex space-x-3">
+              <div className="flex gap-3">
                 <button
                   onClick={() => {
                     setShowFavoriteModal(false);
                     setFavoriteToSave(null);
                     setFavoriteName('');
                   }}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={saveFavorite}
-                  className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 font-medium"
+                  className="flex-1 px-4 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 font-medium"
                 >
                   Save Favorite
                 </button>
@@ -1927,19 +2392,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       {/* Fuel Stop Modal */}
       {showFuelStopModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-t-2xl md:rounded-lg shadow-xl w-full md:max-w-md safe-bottom md:safe-bottom-0 max-h-[90vh] flex flex-col">
+            <div className="p-5 overflow-y-auto flex-1">
+              <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4 md:hidden" />
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                   </svg>
-                  <span>Log Fuel Stop</span>
+                  Log Fuel Stop
                 </h2>
                 <button
                   onClick={() => setShowFuelStopModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 p-2 -mr-2 -mt-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -1953,12 +2419,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Location (Auto-detected)
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Location
                   </label>
                   <input
                     type="text"
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                    className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-base"
                     placeholder="Service station address"
                     value={fuelStopLocation}
                     onChange={(e) => setFuelStopLocation(e.target.value)}
@@ -1966,12 +2432,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Odometer Reading (km) <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="number"
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                    className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-base"
                     placeholder="12345"
                     value={fuelStopOdometer}
                     onChange={(e) => setFuelStopOdometer(e.target.value)}
@@ -1980,12 +2446,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Fuel Amount (Litres)
                   </label>
                   <input
                     type="number"
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                    className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-base"
                     placeholder="45.5"
                     value={fuelStopLiters}
                     onChange={(e) => setFuelStopLiters(e.target.value)}
@@ -1994,12 +2460,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Cost (AUD)
                   </label>
                   <input
                     type="number"
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                    className="block w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-base"
                     placeholder="89.50"
                     value={fuelStopCost}
                     onChange={(e) => setFuelStopCost(e.target.value)}
@@ -2008,7 +2474,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 </div>
               </div>
 
-              <div className="flex space-x-3 mt-6">
+              <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => {
                     setShowFuelStopModal(false);
@@ -2017,14 +2483,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     setFuelStopCost('');
                     setFuelStopOdometer('');
                   }}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={saveFuelStopHandler}
                   disabled={fuelStopSaving}
-                  className={`flex-1 px-4 py-2 text-white rounded-lg font-medium ${fuelStopSaving ? 'bg-orange-400 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'}`}
+                  className={`flex-1 px-4 py-3 text-white rounded-lg font-medium ${fuelStopSaving ? 'bg-orange-400 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'}`}
                 >
                   {fuelStopSaving ? 'Saving...' : 'Log Fuel Stop'}
                 </button>

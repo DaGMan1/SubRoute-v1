@@ -84,13 +84,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate }) => {
     ];
 
     return (
-        <main className="p-4 sm:p-6 lg:p-8">
-            <div className="max-w-7xl mx-auto">
-                <div className="mb-8 border-b border-brand-gray-200 pb-5">
-                    <h2 className="text-3xl font-bold text-brand-gray-800">Dashboard</h2>
+        <main className="p-3 sm:p-6 lg:p-8">
+            <div className="w-full">
+                <div className="mb-6 sm:mb-8 border-b border-brand-gray-200 pb-4 sm:pb-5">
+                    <h2 className="text-2xl sm:text-3xl font-bold text-brand-gray-800">Dashboard</h2>
                     <p className="mt-1 text-brand-gray-600">Welcome back, {user.name}. Here's your toolkit.</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                     {features.map((feature) => (
                         <FeatureCard key={feature.title} {...feature} />
                     ))}

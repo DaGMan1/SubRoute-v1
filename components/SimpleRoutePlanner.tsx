@@ -1555,124 +1555,85 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             </div>
           ) : (
             <div className="space-y-2">
-              {[...stops].reverse().map((stop, displayIndex) => {
-                const originalIndex = stops.length - 1 - displayIndex;
+              {sortedStops.map((stop) => {
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
                 const isDepot = stop.type === 'depot';
-                const isCompleted = stop.status === 'done';
-                const isActiveDestination = activeTrip?.destinationStopId === stop.id;
+                const typeLabel = isPickup ? 'Pickup' : isDelivery ? 'Delivery' : isDepot ? 'Depot' : null;
 
-                if (isCompleted) {
+                if (stop.status === 'done') {
                   return (
-                    <div
-                      key={stop.id}
-                      className="flex items-center gap-2 px-3 py-3 bg-green-50 border border-green-200 rounded-lg"
-                    >
-                      <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                        </svg>
+                    <div key={stop.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">✓ Done</span>
+                        {typeLabel && <span className="text-xs text-gray-400">{typeLabel}</span>}
                       </div>
-                      <p className="flex-1 text-sm text-green-800 truncate">{stop.address}</p>
+                      <p className="text-sm font-semibold text-gray-700">{stop.address}</p>
+                    </div>
+                  );
+                }
+
+                if (stop.status === 'active') {
+                  return (
+                    <div key={stop.id} className="bg-white border-2 border-green-400 rounded-lg p-3 shadow-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0" />
+                        <span className="text-xs font-bold text-green-600 uppercase tracking-wide">Active</span>
+                        {typeLabel && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800">{typeLabel}</span>}
+                      </div>
+                      <p className="text-sm font-semibold text-gray-900 mb-2">{stop.address}</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDone(stop)}
+                          className="flex-1 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all"
+                        >
+                          ✓ Done
+                        </button>
+                        <button
+                          onClick={() => startNavigationToStop(stop, preferredNavApp)}
+                          className="flex-1 py-2 bg-gray-600 hover:bg-gray-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all"
+                        >
+                          Re-Nav
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Pending stop
+                const haversine = (loc1: google.maps.LatLngLiteral, loc2: google.maps.LatLngLiteral) => {
+                  const R = 6371;
+                  const dLat = (loc2.lat - loc1.lat) * Math.PI / 180;
+                  const dLon = (loc2.lng - loc1.lng) * Math.PI / 180;
+                  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(loc1.lat * Math.PI / 180) * Math.cos(loc2.lat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                };
+                const distanceLabel = currentLocation ? `${haversine(currentLocation, stop.location).toFixed(1)}km` : null;
+                return (
+                  <div key={stop.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-amber-600 uppercase tracking-wide bg-amber-50 border border-amber-200 rounded px-2 py-0.5">Pending</span>
+                      <span className="text-xs text-gray-400">
+                        {typeLabel}{typeLabel && distanceLabel ? ' · ' : ''}{distanceLabel}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-900 mb-2">{stop.address}</p>
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                        className="flex-shrink-0 text-xs font-bold text-white px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 active:scale-95 whitespace-nowrap"
+                        className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all"
                       >
-                        Navigate
+                        GO ▶
+                      </button>
+                      <button
+                        onClick={() => removeStop(stop.id)}
+                        className="w-9 h-9 flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
                       </button>
                     </div>
-                  );
-                }
-
-                // Active en-route card
-                if (isActiveDestination) {
-                  return (
-                    <div
-                      key={stop.id}
-                      draggable={false}
-                      className="bg-white border-2 border-blue-400 rounded-lg shadow-sm overflow-hidden"
-                    >
-                      <div className="p-3">
-                        <div className="flex items-start gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse flex-shrink-0" />
-                              <span className="text-xs font-bold text-blue-600 uppercase tracking-wide">En Route</span>
-                            </div>
-                            <p className="text-sm font-semibold text-gray-900 truncate">{stop.address}</p>
-                            <div className="flex items-center gap-1.5 mt-1">
-                              {(isPickup || isDelivery) && (
-                                <button
-                                  onClick={() => toggleStopType(stop.id)}
-                                  className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                                    isPickup ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
-                                  }`}
-                                >
-                                  {isPickup ? 'Pickup' : 'Delivery'}
-                                </button>
-                              )}
-                              {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleDone(stop)}
-                            className="flex-shrink-0 px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all shadow-sm whitespace-nowrap"
-                          >
-                            Done
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Regular pending stop card
-                const numColor = isPickup ? 'bg-amber-500' : isDelivery ? 'bg-green-600' : isDepot ? 'bg-gray-500' : 'bg-blue-600';
-                return (
-                  <div
-                    key={stop.id}
-                    draggable
-                    onDragStart={() => handleDragStart(originalIndex)}
-                    onDragOver={(e) => handleDragOver(e, originalIndex)}
-                    onDrop={(e) => handleDrop(e, originalIndex)}
-                    className="flex items-center gap-2 px-3 py-3 bg-white border border-gray-200 rounded-lg shadow-sm cursor-move hover:border-gray-300 transition-colors"
-                  >
-                    <div className={`w-6 h-6 rounded-full ${numColor} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
-                      {originalIndex + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{stop.address}</p>
-                      {(isPickup || isDelivery || isDepot) && (
-                        <div className="mt-0.5">
-                          {(isPickup || isDelivery) && (
-                            <button
-                              onClick={() => toggleStopType(stop.id)}
-                              className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                                isPickup ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
-                              } transition-colors`}
-                            >
-                              {isPickup ? 'Pickup' : 'Delivery'}
-                            </button>
-                          )}
-                          {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => startNavigationToStop(stop, preferredNavApp)}
-                      className="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all shadow-sm"
-                    >
-                      GO
-                    </button>
-                    <button
-                      onClick={() => removeStop(stop.id)}
-                      className="flex-shrink-0 text-gray-300 hover:text-red-500 p-1 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                      </svg>
-                    </button>
                   </div>
                 );
               })}

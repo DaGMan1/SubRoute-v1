@@ -81,6 +81,28 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   // Mobile tab state
   const [mobileTab, setMobileTab] = useState<'stops' | 'map' | 'route'>('stops');
 
+  // Sorted stops: active first, pending nearest-first, done last
+  const sortedStops = React.useMemo(() => {
+    const haversine = (loc1: google.maps.LatLngLiteral, loc2: google.maps.LatLngLiteral): number => {
+      const R = 6371;
+      const dLat = (loc2.lat - loc1.lat) * Math.PI / 180;
+      const dLon = (loc2.lng - loc1.lng) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(loc1.lat * Math.PI / 180) * Math.cos(loc2.lat * Math.PI / 180) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const active = stops.filter(s => s.status === 'active');
+    const pending = stops
+      .filter(s => s.status === 'pending')
+      .sort((a, b) => {
+        if (!currentLocation) return 0;
+        return haversine(currentLocation, a.location) - haversine(currentLocation, b.location);
+      });
+    const done = stops.filter(s => s.status === 'done');
+    return [...active, ...pending, ...done];
+  }, [stops, currentLocation]);
+
   // Point-to-point trip tracking
   const [activeTrip, setActiveTrip] = useState<{
     origin: string;

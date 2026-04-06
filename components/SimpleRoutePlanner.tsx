@@ -28,6 +28,7 @@ interface Stop {
   location: google.maps.LatLngLiteral;
   type?: 'pickup' | 'delivery' | 'depot';
   notes?: string;
+  status: 'pending' | 'active' | 'done';
 }
 
 export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, onBack }) => {
@@ -114,16 +115,20 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         }
 
         if (savedStops && savedStops.length > 0) {
-          setStops(savedStops);
+          // Migrate old saves that lack status field
+          const migratedStops = savedStops.map((s: Stop) => {
+            if (s.status) return s;
+            if (savedCompleted && savedCompleted.includes(s.id)) return { ...s, status: 'done' as const };
+            if (savedActiveTrip && savedActiveTrip.destinationStopId === s.id) return { ...s, status: 'active' as const };
+            return { ...s, status: 'pending' as const };
+          });
+          setStops(migratedStops);
           setRouteDetails(savedDetails || null);
           setRouteStartTime(savedTime || null);
           setRouteBegunFromDepot(depotStart || false);
           if (savedActiveTrip) {
             setActiveTrip(savedActiveTrip);
             lastGpsPosition.current = savedActiveTrip.originLocation;
-          }
-          if (savedCompleted) {
-            setCompletedStops(new Set(savedCompleted));
           }
         }
       }
@@ -482,6 +487,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       address,
       location,
       type,
+      status: 'pending',
     };
 
     const updatedStops = [...stops, newStop];
@@ -1143,6 +1149,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       address,
       location,
       type: 'depot',
+      status: 'pending',
     };
     setDepotAddress(depot);
     try {

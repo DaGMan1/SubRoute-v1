@@ -917,51 +917,53 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   };
 
-  // Start navigation to a specific stop (point-to-point)
-  // Start navigation to a specific stop - point-to-point, zero friction
+  // Start navigation to a specific stop - zero friction, address-based URLs
   const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
     // If there's an active trip to a DIFFERENT destination, silently log it as partial
     if (activeTrip && activeTrip.destinationStopId !== stop.id) {
       console.log('[SubRoute] Active trip to:', activeTrip.destination, '- silently logging partial trip');
-      logCompletedTrip(true); // Silent partial log, no prompts
+      logCompletedTrip(true);
     }
 
-    // Determine origin: use last GPS position (updated by logCompletedTrip above), or current location
+    // Set tapped stop to active, return any currently active stop to pending
+    setStops(prev => prev.map(s => {
+      if (s.id === stop.id) return { ...s, status: 'active' };
+      if (s.status === 'active') return { ...s, status: 'pending' };
+      return s;
+    }));
+
     const origin = lastGpsPosition.current || currentLocation || null;
     const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
 
-    // Start tracking this NEW trip
     distanceTraveledRef.current = 0;
     const newTrip = {
       origin: originAddress,
-      originLocation: origin || stop.location, // Fallback to destination if no origin
+      originLocation: origin || stop.location,
       destination: stop.address,
       destinationLocation: stop.location,
-      destinationStopId: stop.id, // Track stop ID for completion
+      destinationStopId: stop.id,
       startTime: Date.now(),
     };
     console.log('[SubRoute] Starting NEW trip tracking:', newTrip);
     setActiveTrip(newTrip);
-    if (origin) {
-      lastGpsPosition.current = origin;
-    }
+    if (origin) lastGpsPosition.current = origin;
 
     // CRITICAL: Persist to localStorage SYNCHRONOUSLY before navigating away
-    // React state effects won't fire before window.location.href redirects
     persistRouteStateSync({ activeTrip: newTrip });
 
-    // Open navigation app - ALWAYS open, don't block on location
+    // Use address text — far more accurate entry point than raw coordinates
+    const encodedAddress = encodeURIComponent(stop.address);
     try {
       if (navApp === 'google') {
         const url = origin
-          ? `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`
-          : `https://www.google.com/maps/dir/?api=1&destination=${stop.location.lat},${stop.location.lng}&travelmode=driving&dir_action=navigate`;
+          ? `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${encodedAddress}&travelmode=driving&dir_action=navigate`
+          : `https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}&travelmode=driving&dir_action=navigate`;
         console.log('[SubRoute] Opening Google Maps:', url);
         window.location.href = url;
       } else {
-        const wazeUrl = `https://waze.com/ul?ll=${stop.location.lat}%2C${stop.location.lng}&navigate=yes&zoom=17`;
+        const wazeUrl = `https://waze.com/ul?q=${encodedAddress}&navigate=yes`;
         console.log('[SubRoute] Opening Waze:', wazeUrl);
         window.location.href = wazeUrl;
       }
@@ -971,13 +973,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     }
   };
 
-  // Manual complete for when GPS isn't accurate
-  const manualCompleteStop = async (stop: Stop) => {
-    if (!activeTrip || activeTrip.destinationStopId !== stop.id) {
-      alert('No active trip to this destination');
-      return;
+  // Mark a stop done — no redirect, no prompt, silently logs trip
+  const handleDone = async (stop: Stop) => {
+    // Update status immediately so UI responds instantly
+    setStops(prev => prev.map(s =>
+      s.id === stop.id ? { ...s, status: 'done' } : s
+    ));
+    if (activeTrip && activeTrip.destinationStopId === stop.id) {
+      await logCompletedTrip(false);
+    } else {
+      setActiveTrip(null);
     }
-    await logCompletedTrip();
   };
 
 
@@ -1588,7 +1594,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                             </div>
                           </div>
                           <button
-                            onClick={() => manualCompleteStop(stop)}
+                            onClick={() => handleDone(stop)}
                             className="flex-shrink-0 px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-lg transition-all shadow-sm whitespace-nowrap"
                           >
                             Done
@@ -1955,7 +1961,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                                 {isDepot && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Depot</span>}
                               </div>
                               <p className="text-sm font-semibold text-gray-900 mb-3">{stop.address}</p>
-                              <button onClick={() => manualCompleteStop(stop)} className="w-full py-3 bg-green-600 text-white text-sm font-bold rounded-xl active:scale-[0.98]">
+                              <button onClick={() => handleDone(stop)} className="w-full py-3 bg-green-600 text-white text-sm font-bold rounded-xl active:scale-[0.98]">
                                 Done
                               </button>
                             </div>

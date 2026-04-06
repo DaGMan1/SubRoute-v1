@@ -91,7 +91,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     startTime: number;
   } | null>(null);
   const distanceTraveledRef = useRef<number>(0); // Mutable ref to avoid GPS effect restarts
-  const [completedStops, setCompletedStops] = useState<Set<string>>(new Set()); // Track by stop.id, not address
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
   const lastDestinationAddress = useRef<string | null>(null); // Track last completed destination for origin address
@@ -139,7 +138,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // PERSIST ROUTE STATE - Save on change
   useEffect(() => {
-    if (stops.length > 0 || routeDetails || routeStartTime || activeTrip || completedStops.size > 0) {
+    if (stops.length > 0 || routeDetails || routeStartTime || activeTrip) {
       try {
         const routeState = {
           stops,
@@ -147,16 +146,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
           routeStartTime,
           depotStart: routeBegunFromDepot,
           activeTrip,
-          completedStops: Array.from(completedStops),
-          savedDate: new Date().toISOString().split('T')[0], // Track date for auto-clear
+          savedDate: new Date().toISOString().split('T')[0],
         };
         localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
-        console.log('[SubRoute] Route state saved:', { activeTrip: activeTrip?.destination, completedCount: completedStops.size });
+        console.log('[SubRoute] Route state saved:', { activeTrip: activeTrip?.destination, doneCount: stops.filter(s => s.status === 'done').length });
       } catch (error) {
         console.error('Error saving route:', error);
       }
     }
-  }, [stops, routeDetails, routeStartTime, routeBegunFromDepot, activeTrip, completedStops, user.id]);
+  }, [stops, routeDetails, routeStartTime, routeBegunFromDepot, activeTrip, user.id]);
 
   useEffect(() => {
     // Get user's current location
@@ -598,7 +596,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   };
 
   const optimizeRouteWithDirections = async () => {
-    const uncompleted = stops.filter(s => !completedStops.has(s.id));
+    const uncompleted = stops.filter(s => s.status !== 'done');
     if (uncompleted.length < 3) {
       alert('Add at least 3 stops to optimize the route.');
       return;
@@ -638,9 +636,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       const reorderedWaypoints = optimalOrder.map(i => waypointStops[i]);
       const newUncompleted = [...reorderedWaypoints, destinationStop];
 
-      // Keep completed stops at their original positions, append reordered uncompleted
-      const completedList = stops.filter(s => completedStops.has(s.id));
-      setStops([...completedList, ...newUncompleted]);
+      const doneList = stops.filter(s => s.status === 'done');
+      setStops([...newUncompleted, ...doneList]);
       console.log('[SubRoute] Route optimized via Directions API, order:', optimalOrder);
     } catch (e) {
       console.error('[SubRoute] Route optimization failed:', e);
@@ -713,7 +710,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setRouteDetails(null);
     setRouteBegunFromDepot(false);
     setActiveTrip(null);
-    setCompletedStops(new Set());
+    // completedStops removed — status is now on each Stop
     // Clear persisted route state
     try {
       localStorage.removeItem(`subroute_active_route_${user.id}`);
@@ -847,15 +844,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       await saveTripLog(user.id, tripLog);
       console.log('[SubRoute] ✅ Trip logged successfully to Firestore!', tripLog);
 
-      // For partial trips, don't mark stop as completed (they didn't actually arrive)
-      // For complete trips, mark stop as completed
+      // For partial trips, don't mark stop as done (they didn't actually arrive)
+      // For complete trips, mark stop as done
       if (!isPartialTrip) {
-        const newCompletedStops = new Set(completedStops);
-        newCompletedStops.add(tripToLog.destinationStopId);
-        setCompletedStops(newCompletedStops);
-        console.log('[SubRoute] Stop marked as completed:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
+        setStops(prev => prev.map(s =>
+          s.id === tripToLog.destinationStopId ? { ...s, status: 'done' } : s
+        ));
+        console.log('[SubRoute] Stop marked as done:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
       } else {
-        console.log('[SubRoute] Partial trip - stop NOT marked as completed');
+        console.log('[SubRoute] Partial trip - stop NOT marked as done');
       }
 
       // Save the actual destination location and address as the starting point for next trip
@@ -903,7 +900,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const persistRouteStateSync = (overrides: {
     activeTrip?: typeof activeTrip;
     stops?: Stop[];
-    completedStops?: Set<string>;
   } = {}) => {
     try {
       const routeState = {
@@ -912,7 +908,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         routeStartTime,
         depotStart: routeBegunFromDepot,
         activeTrip: overrides.activeTrip !== undefined ? overrides.activeTrip : activeTrip,
-        completedStops: Array.from(overrides.completedStops ?? completedStops),
         savedDate: new Date().toISOString().split('T')[0],
       };
       localStorage.setItem(`subroute_active_route_${user.id}`, JSON.stringify(routeState));
@@ -1537,7 +1532,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 const isPickup = stop.type === 'pickup';
                 const isDelivery = stop.type === 'delivery';
                 const isDepot = stop.type === 'depot';
-                const isCompleted = completedStops.has(stop.id);
+                const isCompleted = stop.status === 'done';
                 const isActiveDestination = activeTrip?.destinationStopId === stop.id;
 
                 if (isCompleted) {
@@ -1663,7 +1658,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             {(() => {
               const pickupCount = stops.filter(s => s.type === 'pickup').length;
               const deliveryCount = stops.filter(s => s.type === 'delivery').length;
-              const uncompletedCount = stops.filter(s => !completedStops.has(s.id)).length;
+              const uncompletedCount = stops.filter(s => s.status !== 'done').length;
               return (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 text-xs font-medium">
@@ -1921,7 +1916,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       const isPickup = stop.type === 'pickup';
                       const isDelivery = stop.type === 'delivery';
                       const isDepot = stop.type === 'depot';
-                      const isCompleted = completedStops.has(stop.id);
+                      const isCompleted = stop.status === 'done';
                       const isActiveDestination = activeTrip?.destinationStopId === stop.id;
 
                       if (isCompleted) {
@@ -2102,7 +2097,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                     )}
 
                     {/* Optimize Route */}
-                    {stops.filter(s => !completedStops.has(s.id)).length >= 3 && (
+                    {stops.filter(s => s.status !== 'done').length >= 3 && (
                       <button
                         onClick={optimizeRouteWithDirections}
                         disabled={isOptimizing}
@@ -2134,7 +2129,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       </div>
                       <div className="divide-y divide-gray-100">
                         {stops.map((stop, index) => {
-                          const isCompleted = completedStops.has(stop.id);
+                          const isCompleted = stop.status === 'done';
                           const isActive = activeTrip?.destinationStopId === stop.id;
                           const isPickup = stop.type === 'pickup';
                           const isDelivery = stop.type === 'delivery';

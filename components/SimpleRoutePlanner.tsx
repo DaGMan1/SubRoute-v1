@@ -1289,24 +1289,23 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   // Initialize depot autocomplete when modal opens
   useEffect(() => {
-    if (showDepotModal && depotSearchRef.current && !depotAutocompleteRef.current && window.google) {
-      depotAutocompleteRef.current = new google.maps.places.Autocomplete(depotSearchRef.current, {
-        componentRestrictions: { country: 'au' },
-        fields: ['formatted_address', 'geometry', 'name'],
-      });
-
-      depotAutocompleteRef.current.addListener('place_changed', () => {
-        const place = depotAutocompleteRef.current?.getPlace();
-        if (!place || !place.geometry || !place.geometry.location) return;
-
-        const location = {
-          lat: place.geometry.location.lat(),
-          lng: place.geometry.location.lng(),
-        };
-
-        saveDepotAddress(place.formatted_address || place.name || 'Depot', location);
-      });
+    if (!showDepotModal || !depotSearchRef.current || !window.google) {
+      depotAutocompleteRef.current = null; // Reset so it re-attaches next open
+      return;
     }
+    depotAutocompleteRef.current = new google.maps.places.Autocomplete(depotSearchRef.current, {
+      componentRestrictions: { country: 'au' },
+      fields: ['formatted_address', 'geometry', 'name'],
+    });
+    depotAutocompleteRef.current.addListener('place_changed', () => {
+      const place = depotAutocompleteRef.current?.getPlace();
+      if (!place || !place.geometry || !place.geometry.location) return;
+      const location = {
+        lat: place.geometry.location.lat(),
+        lng: place.geometry.location.lng(),
+      };
+      saveDepotAddress(place.formatted_address || place.name || 'Depot', location);
+    });
   }, [showDepotModal]);
 
   // Handle selecting a voice search result
@@ -1426,10 +1425,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   <button
                     key={prediction.place_id}
                     onClick={() => selectVoiceResult(prediction)}
-                    className="w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                    className="w-full text-left px-4 py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors"
                   >
-                    <p className="text-sm font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
+                    <p className="text-base font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
                   </button>
                 ))}
               </div>
@@ -1564,9 +1563,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                 if (stop.status === 'done') {
                   return (
                     <div key={stop.id} className="bg-white border border-gray-200 rounded-lg p-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">✓ Done</span>
-                        {typeLabel && <span className="text-xs text-gray-400">{typeLabel}</span>}
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">✓ Done</span>
+                          {typeLabel && <span className="text-xs text-gray-400">{typeLabel}</span>}
+                        </div>
+                        <button
+                          onClick={() => setStops(prev => prev.map(s => s.id === stop.id ? { ...s, status: 'pending' } : s))}
+                          className="text-xs text-blue-500 hover:text-blue-700 font-medium px-2 py-1"
+                        >
+                          Undo
+                        </button>
                       </div>
                       <p className="text-sm font-semibold text-gray-700">{stop.address}</p>
                     </div>
@@ -1780,10 +1787,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                         <button
                           key={prediction.place_id}
                           onClick={() => selectVoiceResult(prediction)}
-                          className="w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
+                          className="w-full text-left px-4 py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
                         >
-                          <p className="text-sm font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
+                          <p className="text-base font-semibold text-gray-900">{prediction.structured_formatting.main_text}</p>
+                          <p className="text-sm text-gray-500 mt-0.5">{prediction.structured_formatting.secondary_text}</p>
                         </button>
                       ))}
                     </div>
@@ -1909,9 +1916,17 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                       if (stop.status === 'done') {
                         return (
                           <div key={stop.id} className="bg-white border border-gray-200 rounded-xl p-3">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">✓ Done</span>
-                              {typeLabel && <span className="text-xs text-gray-400">{typeLabel}</span>}
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">✓ Done</span>
+                                {typeLabel && <span className="text-xs text-gray-400">{typeLabel}</span>}
+                              </div>
+                              <button
+                                onClick={() => setStops(prev => prev.map(s => s.id === stop.id ? { ...s, status: 'pending' } : s))}
+                                className="text-xs text-blue-500 hover:text-blue-700 font-medium px-2 py-1"
+                              >
+                                Undo
+                              </button>
                             </div>
                             <p className="text-sm font-medium text-gray-700">{stop.address}</p>
                           </div>

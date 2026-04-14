@@ -27,6 +27,7 @@ export interface TripLog {
   distanceKm: number;
   vehicleString: string;
   durationMinutes: number;
+  stopType?: 'pickup' | 'delivery';
 }
 
 export type JobType = 'pickup' | 'delivery';

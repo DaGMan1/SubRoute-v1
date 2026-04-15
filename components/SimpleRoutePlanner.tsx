@@ -11,10 +11,12 @@ import {
   deleteFavoriteAddress,
   subscribeToFavoriteAddresses,
   saveFuelStop,
+  saveFuelLog,
   updateVehicleOdometer,
   getTripLogs,
   type SavedAddress,
-  type FavoriteAddress
+  type FavoriteAddress,
+  type FuelLog
 } from '../lib/firestore';
 
 interface SimpleRoutePlannerProps {
@@ -1090,68 +1092,46 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   }, [user.id]);
 
   const saveFuelStopHandler = async () => {
-    if (!fuelStopOdometer) {
-      alert('Please enter odometer reading');
-      return;
-    }
-
-    if (fuelStopSaving) return; // Prevent double-tap
+    if (fuelStopSaving) return;
     setFuelStopSaving(true);
 
     try {
-      // Get default vehicle
-      const vehicles = await getVehicles(user.id);
-      const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
-      if (!defaultVehicle) {
-        alert('No default vehicle found. Please set up a vehicle in Settings first.');
-        setFuelStopSaving(false);
-        return;
-      }
-
-      if (!defaultVehicle.id) {
-        alert('Vehicle data is missing an ID. Please re-add the vehicle in Settings.');
-        setFuelStopSaving(false);
-        return;
-      }
-
-      const fuelStop: FuelStop = {
-        id: Date.now().toString(),
-        timestamp: Date.now(),
-        odometerReading: parseFloat(fuelStopOdometer),
-        liters: fuelStopLiters ? parseFloat(fuelStopLiters) : undefined,
-        costAUD: fuelStopCost ? parseFloat(fuelStopCost) : undefined,
+      const now = Date.now();
+      const log: FuelLog = {
+        id: now.toString(),
+        timestamp: now,
+        date: new Date(now).toISOString().split('T')[0],
         location: fuelStopLocation || undefined,
-        tripId: routeStartTime ? routeStartTime.toString() : undefined,
+        odometerKm: fuelStopOdometer ? parseFloat(fuelStopOdometer) : undefined,
+        litres: fuelStopLiters ? parseFloat(fuelStopLiters) : undefined,
+        costAUD: fuelStopCost ? parseFloat(fuelStopCost) : undefined,
       };
 
+      // Attach vehicle string and update tracked odometer if a default vehicle exists
       try {
-        await saveFuelStop(user.id, defaultVehicle.id, fuelStop);
-
-        // Update vehicle's current odometer to the new reading
-        try {
-          await updateVehicleOdometer(user.id, defaultVehicle.id, fuelStop.odometerReading);
-          console.log('[SubRoute] Vehicle odometer updated to:', fuelStop.odometerReading);
-        } catch (odoErr) {
-          console.error('[SubRoute] Failed to update vehicle odometer:', odoErr);
+        const vehicles = await getVehicles(user.id);
+        const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+        if (defaultVehicle) {
+          log.vehicle = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
+          if (log.odometerKm) {
+            await updateVehicleOdometer(user.id, defaultVehicle.id, log.odometerKm);
+          }
         }
-
-        alert('Fuel stop logged! Odometer updated to ' + fuelStop.odometerReading + ' km');
-      } catch (firebaseError) {
-        // Firebase failed - save to localStorage backup
-        console.error('[SubRoute] Firebase fuel stop save failed, backing up locally:', firebaseError);
-        saveFuelStopToBackup(defaultVehicle.id, fuelStop);
-        const errorMsg = firebaseError instanceof Error ? firebaseError.message : 'Unknown error';
-        alert('Fuel stop saved locally (Firebase error: ' + errorMsg + '). It will auto-sync next time you open the app.');
+      } catch (e) {
+        console.warn('[SubRoute] Could not attach vehicle to fuel log:', e);
       }
 
-      // Reset form and close modal - data is saved either way
+      await saveFuelLog(user.id, log);
+      console.log('[SubRoute] Fuel stop logged:', log);
+
       setFuelStopLocation('');
       setFuelStopLiters('');
       setFuelStopCost('');
       setFuelStopOdometer('');
       setShowFuelStopModal(false);
+      alert('Fuel stop logged!');
     } catch (e) {
-      console.error('Failed to save fuel stop', e);
+      console.error('[SubRoute] Failed to save fuel stop:', e);
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';
       alert('Failed to save fuel stop: ' + errorMsg);
     } finally {
@@ -2401,7 +2381,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               </div>
 
               <p className="text-sm text-gray-600 mb-4">
-                Record your fuel stop. Odometer reading is required, other fields are optional.
+                Record your fuel stop. All fields are optional — fill in what you have.
               </p>
 
               <div className="space-y-4">
@@ -2420,7 +2400,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Odometer Reading (km) <span className="text-red-600">*</span>
+                    Odometer Reading (km)
                   </label>
                   <input
                     type="number"

@@ -316,3 +316,42 @@ export const updateVehicleOdometer = async (userId: string, vehicleId: string, c
   const vehicleRef = doc(db, 'users', userId, 'vehicles', vehicleId);
   await setDoc(vehicleRef, { currentOdometer }, { merge: true });
 };
+
+// ============================================
+// FUEL LOGS (top-level, no vehicle required)
+// ============================================
+
+export interface FuelLog {
+  id: string;
+  timestamp: number;
+  date: string;
+  location?: string;
+  odometerKm?: number;
+  litres?: number;
+  costAUD?: number;
+  vehicle?: string;
+}
+
+export const saveFuelLog = async (userId: string, log: FuelLog): Promise<void> => {
+  const ref = doc(db, 'users', userId, 'fuelLogs', log.id);
+  await setDoc(ref, {
+    ...log,
+    timestamp: Timestamp.fromMillis(log.timestamp)
+  });
+};
+
+export const subscribeToFuelLogs = (
+  userId: string,
+  callback: (logs: FuelLog[]) => void
+): (() => void) => {
+  const ref = collection(db, 'users', userId, 'fuelLogs');
+  const q = query(ref, orderBy('timestamp', 'desc'));
+
+  return onSnapshot(q, (snapshot) => {
+    const logs = snapshot.docs.map(d => {
+      const data = d.data();
+      return { ...data, timestamp: data.timestamp.toMillis() } as FuelLog;
+    });
+    callback(logs);
+  });
+};

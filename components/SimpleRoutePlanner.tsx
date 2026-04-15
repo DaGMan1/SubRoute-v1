@@ -111,6 +111,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     destinationLocation: google.maps.LatLngLiteral;
     destinationStopId: string; // Track stop.id to mark as completed
     startTime: number;
+    stopType?: 'pickup' | 'delivery';
   } | null>(null);
   const distanceTraveledRef = useRef<number>(0); // Mutable ref to avoid GPS effect restarts
   const gpsWatchId = useRef<number | null>(null);
@@ -943,10 +944,41 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const startNavigationToStop = (stop: Stop, navApp: 'google' | 'waze') => {
     console.log('[SubRoute] Starting navigation to:', stop.address, 'via', navApp);
 
-    // If there's an active trip to a DIFFERENT destination, silently log it as partial
+    let tripToSet: typeof activeTrip;
+
     if (activeTrip && activeTrip.destinationStopId !== stop.id) {
-      console.log('[SubRoute] Active trip to:', activeTrip.destination, '- silently logging partial trip');
-      logCompletedTrip(true);
+      // INTERRUPTION: different stop — keep origin, startTime, GPS distance as-is
+      // Just update where we're heading (no partial write, session stays open)
+      console.log('[SubRoute] Diverting from', activeTrip.destination, 'to', stop.address, '— keeping session open');
+      tripToSet = {
+        ...activeTrip,
+        destination: stop.address,
+        destinationLocation: stop.location,
+        destinationStopId: stop.id,
+        stopType: stop.type === 'depot' ? undefined : stop.type,
+      };
+      setActiveTrip(tripToSet);
+    } else if (!activeTrip) {
+      // NEW SESSION: first GO tap (or Re-Nav on current stop with no session)
+      const origin = lastGpsPosition.current || currentLocation || null;
+      const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
+      distanceTraveledRef.current = 0;
+      tripToSet = {
+        origin: originAddress,
+        originLocation: origin || stop.location,
+        destination: stop.address,
+        destinationLocation: stop.location,
+        destinationStopId: stop.id,
+        startTime: Date.now(),
+        stopType: stop.type === 'depot' ? undefined : stop.type,
+      };
+      console.log('[SubRoute] Starting NEW trip session:', tripToSet);
+      setActiveTrip(tripToSet);
+      if (origin) lastGpsPosition.current = origin;
+    } else {
+      // RE-NAV on the same active stop — keep everything, just re-open nav app
+      tripToSet = activeTrip;
+      console.log('[SubRoute] Re-navigating to same stop:', stop.address);
     }
 
     // Set tapped stop to active, return any currently active stop to pending
@@ -956,27 +988,12 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       return s;
     }));
 
-    const origin = lastGpsPosition.current || currentLocation || null;
-    const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
-
-    distanceTraveledRef.current = 0;
-    const newTrip = {
-      origin: originAddress,
-      originLocation: origin || stop.location,
-      destination: stop.address,
-      destinationLocation: stop.location,
-      destinationStopId: stop.id,
-      startTime: Date.now(),
-    };
-    console.log('[SubRoute] Starting NEW trip tracking:', newTrip);
-    setActiveTrip(newTrip);
-    if (origin) lastGpsPosition.current = origin;
-
     // CRITICAL: Persist to localStorage SYNCHRONOUSLY before navigating away
-    persistRouteStateSync({ activeTrip: newTrip });
+    persistRouteStateSync({ activeTrip: tripToSet });
 
     // Use address text — far more accurate entry point than raw coordinates
     const encodedAddress = encodeURIComponent(stop.address);
+    const origin = lastGpsPosition.current || currentLocation || null;
     try {
       if (navApp === 'google') {
         const url = origin

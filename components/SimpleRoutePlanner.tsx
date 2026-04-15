@@ -781,10 +781,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     });
   };
 
-  // Log completed trip when arrival detected
-  // isPartialTrip = true when user switches destinations mid-route (uses current GPS as destination)
-  const logCompletedTrip = async (isPartialTrip: boolean = false) => {
-    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isPartialTrip:', isPartialTrip, 'isLogging:', isLoggingTrip.current);
+  // Log completed trip — one entry per Done tap, uses GPS accumulated distance
+  const logCompletedTrip = async () => {
+    console.log('[SubRoute] logCompletedTrip called, activeTrip:', activeTrip, 'isLogging:', isLoggingTrip.current);
 
     // MUTEX CHECK: If already logging, skip to prevent duplicates
     if (isLoggingTrip.current) {
@@ -801,41 +800,28 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     isLoggingTrip.current = true;
     console.log('[SubRoute] 🔒 Mutex locked - logging trip');
 
-    // Capture activeTrip data
+    // Capture activeTrip data and clear state
     const tripToLog = { ...activeTrip };
     const endTime = Date.now();
     const durationMinutes = Math.round((endTime - tripToLog.startTime) / (1000 * 60));
 
-    console.log('[SubRoute] Trip duration:', durationMinutes, 'minutes');
-
-    // Clear activeTrip state
     setActiveTrip(null);
-    console.log('[SubRoute] Active trip state cleared');
+    console.log('[SubRoute] Active trip state cleared, duration:', durationMinutes, 'minutes');
 
-    // For partial trips, use current GPS position as actual destination
-    let actualDestinationLocation = tripToLog.destinationLocation;
-    let actualDestinationAddress = tripToLog.destination;
+    // Use GPS-accumulated distance (tracking via watchPosition)
+    let distanceKm = distanceTraveledRef.current;
+    distanceTraveledRef.current = 0;
+    console.log('[SubRoute] GPS accumulated distance:', distanceKm.toFixed(2), 'km');
 
-    if (isPartialTrip && lastGpsPosition.current) {
-      actualDestinationLocation = lastGpsPosition.current;
-      actualDestinationAddress = 'Current Position (partial trip)';
-      console.log('[SubRoute] Partial trip - using current GPS as destination:', actualDestinationLocation);
-    }
-
-    // Fetch road distance and vehicle info in parallel
-    const [distanceResult, vehiclesResult] = await Promise.allSettled([
-      getRouteDistance(tripToLog.originLocation, actualDestinationLocation),
-      getVehicles(user.id),
-    ]);
-
-    let distanceKm = distanceResult.status === 'fulfilled' ? distanceResult.value : 0;
-    if (distanceKm === 0) {
-      const straightLine = calculateDistance(tripToLog.originLocation, actualDestinationLocation);
+    if (distanceKm < 0.05) {
+      // GPS didn't accumulate — fall back to straight-line × 1.3
+      const straightLine = calculateDistance(tripToLog.originLocation, tripToLog.destinationLocation);
       distanceKm = straightLine * 1.3;
-      console.log('[SubRoute] Using straight-line fallback:', distanceKm.toFixed(1), 'km');
-    } else {
-      console.log('[SubRoute] Route distance from Google:', distanceKm, 'km');
+      console.log('[SubRoute] GPS too low, using straight-line fallback:', distanceKm.toFixed(1), 'km');
     }
+
+    // Fetch vehicle info
+    const [vehiclesResult] = await Promise.allSettled([getVehicles(user.id)]);
 
     let vehicleString = 'Unknown Vehicle';
     if (vehiclesResult.status === 'fulfilled') {
@@ -847,7 +833,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.error('Failed to load vehicle info', vehiclesResult.reason);
     }
 
-    // Create trip log with actual destination (original or current GPS for partial trips)
     const tripLog: TripLog = {
       id: Date.now().toString(),
       timestamp: endTime,
@@ -855,10 +840,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       startTime: new Date(tripToLog.startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       endTime: new Date(endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
       origin: tripToLog.origin,
-      destination: isPartialTrip ? `${tripToLog.destination} (partial)` : tripToLog.destination,
-      distanceKm: Math.round(distanceKm * 10) / 10, // Round to 1 decimal
+      destination: tripToLog.destination,
+      distanceKm: Math.round(distanceKm * 10) / 10,
       vehicleString,
       durationMinutes,
+      stopType: tripToLog.stopType,
     };
 
     // Save to Firestore
@@ -867,25 +853,16 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       await saveTripLog(user.id, tripLog);
       console.log('[SubRoute] ✅ Trip logged successfully to Firestore!', tripLog);
 
-      // For partial trips, don't mark stop as done (they didn't actually arrive)
-      // For complete trips, mark stop as done
-      if (!isPartialTrip) {
-        setStops(prev => prev.map(s =>
-          s.id === tripToLog.destinationStopId ? { ...s, status: 'done' } : s
-        ));
-        console.log('[SubRoute] Stop marked as done:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
-      } else {
-        console.log('[SubRoute] Partial trip - stop NOT marked as done');
-      }
+      // Mark stop as done and update origin for next trip
+      setStops(prev => prev.map(s =>
+        s.id === tripToLog.destinationStopId ? { ...s, status: 'done' } : s
+      ));
+      console.log('[SubRoute] Stop marked as done:', tripToLog.destination, 'ID:', tripToLog.destinationStopId);
 
-      // Save the actual destination location and address as the starting point for next trip
-      lastGpsPosition.current = actualDestinationLocation;
-      lastDestinationAddress.current = isPartialTrip ? actualDestinationAddress : tripToLog.destination;
-      console.log('[SubRoute] Last GPS position updated:', actualDestinationLocation);
-      console.log('[SubRoute] Last destination address saved:', lastDestinationAddress.current);
+      lastGpsPosition.current = tripToLog.destinationLocation;
+      lastDestinationAddress.current = tripToLog.destination;
       console.log('[SubRoute] ✅ Trip logging complete, ready for next trip');
 
-      // RELEASE MUTEX after successful logging
       isLoggingTrip.current = false;
       console.log('[SubRoute] 🔓 Mutex released');
     } catch (e) {
@@ -893,7 +870,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';
       alert('Failed to save trip log: ' + errorMsg);
 
-      // RELEASE MUTEX even on error
       isLoggingTrip.current = false;
       console.log('[SubRoute] 🔓 Mutex released (after error)');
     }
@@ -1019,7 +995,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       s.id === stop.id ? { ...s, status: 'done' } : s
     ));
     if (activeTrip && activeTrip.destinationStopId === stop.id) {
-      await logCompletedTrip(false);
+      await logCompletedTrip();
     } else {
       setActiveTrip(null);
     }

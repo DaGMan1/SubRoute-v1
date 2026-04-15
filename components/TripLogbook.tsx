@@ -35,6 +35,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('today');
   const [showMenu, setShowMenu] = useState(false);
   const [fuelStats, setFuelStats] = useState<FuelEconomyStats | null>(null);
+  const [runningOdometer, setRunningOdometer] = useState<number | null>(null);
 
   useEffect(() => {
     const unsubscribe = subscribeToTripLogs(user.id, (trips) => {
@@ -96,6 +97,27 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
     };
     loadFuelStats();
   }, [user.id]);
+
+  // Running odometer: vehicle base (updated at each fuel stop) + today's trips
+  useEffect(() => {
+    const loadOdometer = async () => {
+      try {
+        const vehicles = await getVehicles(user.id);
+        const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+        if (!defaultVehicle) return;
+
+        const baseOdo = defaultVehicle.currentOdometer || defaultVehicle.startOdometer || 0;
+        const todayDate = new Date().toISOString().split('T')[0];
+        const todayKm = logs
+          .filter(l => l.date === todayDate)
+          .reduce((sum, l) => sum + l.distanceKm, 0);
+        setRunningOdometer(Math.round(baseOdo + todayKm));
+      } catch (e) {
+        console.error('Failed to load odometer:', e);
+      }
+    };
+    loadOdometer();
+  }, [user.id, logs]);
 
   // Get today's date
   const today = new Date().toISOString().split('T')[0];
@@ -435,7 +457,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 
       {/* Main Content */}
       <div className="w-full px-3 sm:px-4 md:px-6 py-4 sm:py-6 flex-1">
-        {viewMode === 'today' && <TodaySummaryView summary={getTodaySummary()} allLogs={logs} fuelStats={fuelStats} />}
+        {viewMode === 'today' && <TodaySummaryView summary={getTodaySummary()} allLogs={logs} fuelStats={fuelStats} runningOdometer={runningOdometer} />}
         {viewMode === 'individual' && <IndividualTripsView logs={logs} />}
         {viewMode === 'daily' && <DailySummaryView summaries={getDailySummaries()} />}
         {viewMode === 'weekly' && <WeeklySummaryView weeks={getWeeklySummaries()} />}
@@ -446,7 +468,7 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 };
 
 // Today's Summary View (Default) - Big stats focused
-const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLog[]; fuelStats: FuelEconomyStats | null }> = ({ summary, allLogs, fuelStats }) => {
+const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLog[]; fuelStats: FuelEconomyStats | null; runningOdometer: number | null }> = ({ summary, allLogs, fuelStats, runningOdometer }) => {
   const todayTrips = summary?.trips || [];
   const totalDistance = summary?.totalDistance || 0;
   const totalTrips = summary?.totalTrips || 0;
@@ -542,6 +564,22 @@ const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLo
           <p className="text-3xl font-bold text-gray-900">{avgDistancePerTrip}</p>
           <p className="text-gray-400 text-xs">km</p>
         </div>
+
+        {/* Running Odometer */}
+        {runningOdometer !== null && (
+          <div className="col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+            <div className="flex items-center space-x-3 mb-2">
+              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"></path>
+                </svg>
+              </div>
+              <p className="text-gray-500 text-sm">Odometer</p>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{runningOdometer.toLocaleString()}</p>
+            <p className="text-gray-400 text-xs">km (estimated)</p>
+          </div>
+        )}
       </div>
 
       {/* Today's Trips List */}
@@ -648,7 +686,18 @@ const IndividualTripsView: React.FC<{ logs: TripLog[] }> = ({ logs }) => {
         <div key={log.id} className="bg-white rounded-lg shadow-sm border border-gray-100 p-4">
           <div className="flex justify-between items-start mb-2">
             <div>
-              <p className="text-xs text-gray-500">{log.date} &bull; {log.startTime} - {log.endTime}</p>
+              <div className="flex items-center gap-2 mb-0.5">
+                <p className="text-xs text-gray-500">{log.date} &bull; {log.startTime} - {log.endTime}</p>
+                {log.stopType && (
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    log.stopType === 'pickup'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {log.stopType === 'pickup' ? 'Pickup' : 'Delivery'}
+                  </span>
+                )}
+              </div>
               <p className="font-medium text-gray-900">{log.destination}</p>
               <p className="text-sm text-gray-500">From: {log.origin}</p>
             </div>

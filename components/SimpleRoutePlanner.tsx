@@ -2189,10 +2189,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       {/* Pickup / Delivery Bottom Sheet */}
       {pendingStop && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setPendingStop(null)}>
+        <div className="fixed inset-0 z-50 flex flex-col justify-end pb-[30vh]" onClick={() => setPendingStop(null)}>
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative bg-white rounded-t-2xl shadow-2xl px-4 pt-3 pb-6 safe-bottom"
+            className="relative bg-white rounded-2xl shadow-2xl mx-3 px-4 pt-3 pb-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />

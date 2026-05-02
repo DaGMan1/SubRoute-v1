@@ -996,10 +996,48 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setStops(prev => prev.map(s =>
       s.id === stop.id ? { ...s, status: 'done' } : s
     ));
+
     if (activeTrip && activeTrip.destinationStopId === stop.id) {
+      // Normal path — GPS session exists for this stop
       await logCompletedTrip();
     } else {
+      // No GPS session (driver tapped Done without tapping GO first)
+      // Still log the trip with estimated distance
       setActiveTrip(null);
+      const now = Date.now();
+      const origin = lastDestinationAddress.current || depotAddress?.address || 'Unknown';
+      const fromLocation = lastGpsPosition.current || currentLocation || stop.location;
+      const straightLine = calculateDistance(fromLocation, stop.location);
+      const distanceKm = Math.round(straightLine * 1.3 * 10) / 10;
+
+      let vehicleString = 'Unknown Vehicle';
+      try {
+        const vehicles = await getVehicles(user.id);
+        const defaultVehicle = vehicles.find((v: Vehicle) => v.isDefault);
+        if (defaultVehicle) vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
+      } catch {}
+
+      const tripLog: TripLog = {
+        id: now.toString(),
+        timestamp: now,
+        date: new Date(now).toISOString().split('T')[0],
+        startTime: new Date(now).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+        endTime: new Date(now).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+        origin,
+        destination: stop.address,
+        distanceKm,
+        vehicleString,
+        durationMinutes: 0,
+        stopType: stop.type === 'depot' ? undefined : stop.type,
+      };
+
+      try {
+        await saveTripLog(user.id, tripLog);
+        lastDestinationAddress.current = stop.address;
+        console.log('[SubRoute] Manual done trip logged:', tripLog);
+      } catch (e) {
+        console.error('[SubRoute] Failed to log manual done trip:', e);
+      }
     }
   };
 
@@ -1042,53 +1080,51 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setShowFuelStopModal(true);
   };
 
-  // Save a pending fuel stop to localStorage backup queue
-  const saveFuelStopToBackup = (vehicleId: string, fuelStop: FuelStop) => {
+  const FUEL_LOG_BACKUP_KEY = `subroute_pending_fuel_logs_${user.id}`;
+
+  const saveFuelLogToBackup = (log: FuelLog) => {
     try {
-      const key = `subroute_pending_fuel_stops_${user.id}`;
-      const existing = JSON.parse(localStorage.getItem(key) || '[]');
-      existing.push({ vehicleId, fuelStop });
-      localStorage.setItem(key, JSON.stringify(existing));
-      console.log('[SubRoute] Fuel stop saved to localStorage backup');
+      const existing = JSON.parse(localStorage.getItem(FUEL_LOG_BACKUP_KEY) || '[]');
+      existing.push(log);
+      localStorage.setItem(FUEL_LOG_BACKUP_KEY, JSON.stringify(existing));
+      console.log('[SubRoute] Fuel log saved to localStorage backup');
     } catch (err) {
-      console.error('[SubRoute] Failed to save fuel stop backup:', err);
+      console.error('[SubRoute] Failed to save fuel log backup:', err);
     }
   };
 
-  // Retry any pending fuel stops from localStorage on mount
+  // Retry any pending fuel logs from localStorage on mount
   useEffect(() => {
-    const retryPendingFuelStops = async () => {
-      const key = `subroute_pending_fuel_stops_${user.id}`;
+    const retryPendingFuelLogs = async () => {
       try {
-        const pending = JSON.parse(localStorage.getItem(key) || '[]');
+        const pending: FuelLog[] = JSON.parse(localStorage.getItem(FUEL_LOG_BACKUP_KEY) || '[]');
         if (pending.length === 0) return;
 
-        console.log(`[SubRoute] Retrying ${pending.length} pending fuel stop(s)...`);
-        const stillPending: typeof pending = [];
+        console.log(`[SubRoute] Retrying ${pending.length} pending fuel log(s)...`);
+        const stillPending: FuelLog[] = [];
 
-        for (const item of pending) {
+        for (const log of pending) {
           try {
-            await saveFuelStop(user.id, item.vehicleId, item.fuelStop);
-            console.log('[SubRoute] Pending fuel stop saved successfully:', item.fuelStop.id);
+            await saveFuelLog(user.id, log);
+            console.log('[SubRoute] Pending fuel log synced:', log.id);
           } catch (e) {
-            console.error('[SubRoute] Retry failed for fuel stop:', item.fuelStop.id, e);
-            stillPending.push(item);
+            console.error('[SubRoute] Retry failed for fuel log:', log.id, e);
+            stillPending.push(log);
           }
         }
 
         if (stillPending.length > 0) {
-          localStorage.setItem(key, JSON.stringify(stillPending));
-          console.log(`[SubRoute] ${stillPending.length} fuel stop(s) still pending`);
+          localStorage.setItem(FUEL_LOG_BACKUP_KEY, JSON.stringify(stillPending));
         } else {
-          localStorage.removeItem(key);
-          console.log('[SubRoute] All pending fuel stops synced');
+          localStorage.removeItem(FUEL_LOG_BACKUP_KEY);
+          console.log('[SubRoute] All pending fuel logs synced');
         }
       } catch (err) {
-        console.error('[SubRoute] Error retrying pending fuel stops:', err);
+        console.error('[SubRoute] Error retrying pending fuel logs:', err);
       }
     };
 
-    retryPendingFuelStops();
+    retryPendingFuelLogs();
   }, [user.id]);
 
   const saveFuelStopHandler = async () => {
@@ -1121,19 +1157,26 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         console.warn('[SubRoute] Could not attach vehicle to fuel log:', e);
       }
 
-      await saveFuelLog(user.id, log);
-      console.log('[SubRoute] Fuel stop logged:', log);
+      try {
+        await saveFuelLog(user.id, log);
+        console.log('[SubRoute] Fuel stop logged to Firestore:', log);
+      } catch (firebaseError) {
+        // Firestore failed — save locally and sync next time app opens
+        console.error('[SubRoute] Firestore write failed, saving locally:', firebaseError);
+        saveFuelLogToBackup(log);
+        console.log('[SubRoute] Fuel log queued for retry');
+      }
 
+      // Close modal and reset form regardless — data is either in Firestore or localStorage
       setFuelStopLocation('');
       setFuelStopLiters('');
       setFuelStopCost('');
       setFuelStopOdometer('');
       setShowFuelStopModal(false);
-      alert('Fuel stop logged!');
+      alert('Fuel stop saved!');
     } catch (e) {
-      console.error('[SubRoute] Failed to save fuel stop:', e);
-      const errorMsg = e instanceof Error ? e.message : 'Unknown error';
-      alert('Failed to save fuel stop: ' + errorMsg);
+      console.error('[SubRoute] Unexpected error saving fuel stop:', e);
+      alert('Something went wrong. Please try again.');
     } finally {
       setFuelStopSaving(false);
     }

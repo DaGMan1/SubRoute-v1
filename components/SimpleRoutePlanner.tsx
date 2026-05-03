@@ -434,27 +434,25 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
         autocompleteRef.current.bindTo('bounds', googleMapRef.current);
 
-        // Listen for place selection
-        autocompleteRef.current.addListener('place_changed', async () => {
-          const place = autocompleteRef.current?.getPlace();
-
-          if (!place || !place.geometry || !place.geometry.location) {
-            return;
-          }
+        // Shared handler — called from place_changed and Enter-key fallback
+        const handlePlaceSelected = async (place: google.maps.places.PlaceResult) => {
+          if (!place.geometry || !place.geometry.location) return;
 
           const location = {
             lat: place.geometry.location.lat(),
             lng: place.geometry.location.lng(),
           };
-
           const address = place.formatted_address || place.name || 'Unknown';
 
-          // Show bottom sheet immediately — don't wait for Firestore
-          setPendingStop({ address, location });
+          // Dismiss search UI immediately
           setSearchValue('');
+          setShowHistory(false);
           if (searchInputRef.current) {
             searchInputRef.current.value = '';
+            searchInputRef.current.blur(); // Dismisses pac-container dropdown
           }
+
+          setPendingStop({ address, location });
 
           // Save to history in the background (don't block UI)
           const savedAddress: SavedAddress = {
@@ -483,6 +481,37 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
           }).catch((error) => {
             console.error('Error saving address to history:', error);
           });
+        };
+
+        // Wire place_changed to shared handler
+        autocompleteRef.current.addListener('place_changed', () => {
+          const place = autocompleteRef.current?.getPlace();
+          if (place) handlePlaceSelected(place);
+        });
+
+        // Enter-key fallback: if user presses Enter without selecting a suggestion,
+        // use AutocompleteService to resolve the first prediction manually
+        searchInputRef.current.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key === 'Enter') {
+            const query = searchInputRef.current?.value?.trim();
+            if (!query || !autocompleteServiceRef.current || !placesServiceRef.current) return;
+
+            autocompleteServiceRef.current.getPlacePredictions(
+              { input: query, componentRestrictions: { country: 'au' } },
+              (predictions, status) => {
+                if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions?.length) return;
+                const firstPrediction = predictions[0];
+                placesServiceRef.current!.getDetails(
+                  { placeId: firstPrediction.place_id, fields: ['formatted_address', 'geometry', 'name'] },
+                  (result, detailStatus) => {
+                    if (detailStatus === google.maps.places.PlacesServiceStatus.OK && result) {
+                      handlePlaceSelected(result);
+                    }
+                  }
+                );
+              }
+            );
+          }
         });
       }
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { TripLog, User, FuelStop, Vehicle } from '../types';
-import { subscribeToTripLogs, clearAllTripLogs, getUserPreferences, getVehicles, getFuelStops } from '../lib/firestore';
+import { subscribeToTripLogs, clearAllTripLogs, getUserPreferences, getVehicles, getFuelStops, saveTripLog } from '../lib/firestore';
 
 interface TripLogbookProps {
   user: User;
@@ -29,6 +29,14 @@ interface FuelEconomyStats {
   avgCostPerKm: number;
 }
 
+interface UntrackedSegment {
+  id: string;
+  startTime: number;
+  endTime: number;
+  km: number;
+  reviewed: boolean;
+}
+
 export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
   const [logs, setLogs] = useState<TripLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +44,10 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [fuelStats, setFuelStats] = useState<FuelEconomyStats | null>(null);
   const [runningOdometer, setRunningOdometer] = useState<number | null>(null);
+  const [untrackedSegments, setUntrackedSegments] = useState<UntrackedSegment[]>([]);
+
+  const todayDate = new Date().toISOString().split('T')[0];
+  const UNTRACKED_KEY = `subroute_untracked_${user.id}_${todayDate}`;
 
   useEffect(() => {
     const unsubscribe = subscribeToTripLogs(user.id, (trips) => {
@@ -45,6 +57,17 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 
     return () => unsubscribe();
   }, [user.id]);
+
+  // Load untracked segments from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(UNTRACKED_KEY);
+      if (stored) {
+        const parsed: UntrackedSegment[] = JSON.parse(stored);
+        setUntrackedSegments(parsed.filter(s => !s.reviewed));
+      }
+    } catch {}
+  }, [UNTRACKED_KEY]);
 
   // Load fuel economy stats
   useEffect(() => {
@@ -246,16 +269,26 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 
       const headers = [
         'Date', 'Start Time', 'End Time', 'Start Odometer (km)', 'End Odometer (km)',
-        'Distance (km)', 'Duration (min)', 'Origin', 'Destination', 'Purpose', 'Vehicle'
+        'Distance (km)', 'Duration (min)', 'Origin', 'Destination', 'Purpose', 'Vehicle', 'Source'
       ];
 
       const csvRows = [headers.join(',')];
       const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);
 
       sortedLogs.forEach((log) => {
-        const startOdo = currentOdometer;
-        const endOdo = currentOdometer + log.distanceKm;
-        currentOdometer = endOdo;
+        // Use real odometer fields when available (logged by new GPS architecture)
+        // Fall back to sequential calculation for legacy logs
+        let startOdo: number;
+        let endOdo: number;
+        if (log.startOdometerKm != null && log.endOdometerKm != null) {
+          startOdo = log.startOdometerKm;
+          endOdo = log.endOdometerKm;
+          currentOdometer = endOdo; // keep sequential baseline in sync
+        } else {
+          startOdo = currentOdometer;
+          endOdo = currentOdometer + log.distanceKm;
+          currentOdometer = endOdo;
+        }
 
         const row = [
           log.date,
@@ -267,8 +300,9 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
           log.durationMinutes.toString(),
           `"${log.origin.replace(/"/g, '""')}"`,
           `"${log.destination.replace(/"/g, '""')}"`,
-          'Business - Courier Delivery',
-          `"${(log.vehicleString || '').replace(/"/g, '""')}"`
+          log.isWork === false ? 'Private' : 'Business - Courier Delivery',
+          `"${(log.vehicleString || '').replace(/"/g, '""')}"`,
+          log.source || 'manual'
         ];
         csvRows.push(row.join(','));
       });
@@ -457,7 +491,46 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 
       {/* Main Content */}
       <div className="w-full px-3 sm:px-4 md:px-6 py-4 sm:py-6 flex-1">
-        {viewMode === 'today' && <TodaySummaryView summary={getTodaySummary()} allLogs={logs} fuelStats={fuelStats} runningOdometer={runningOdometer} />}
+        {viewMode === 'today' && (
+          <TodaySummaryView
+            summary={getTodaySummary()}
+            allLogs={logs}
+            fuelStats={fuelStats}
+            runningOdometer={runningOdometer}
+            untrackedSegments={untrackedSegments}
+            onMarkWork={async (seg: UntrackedSegment) => {
+              // Create a TripLog for this untracked segment
+              const tripLog: TripLog = {
+                id: `untracked_${seg.id}`,
+                timestamp: seg.endTime,
+                date: todayDate,
+                startTime: new Date(seg.startTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+                endTime: new Date(seg.endTime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+                origin: 'Untracked',
+                destination: 'Untracked',
+                distanceKm: seg.km,
+                vehicleString: '',
+                durationMinutes: Math.round((seg.endTime - seg.startTime) / 60000),
+                isWork: true,
+                source: 'untracked',
+              };
+              try {
+                await saveTripLog(user.id, tripLog);
+              } catch (e) {
+                console.error('Failed to save untracked trip log:', e);
+              }
+              // Mark reviewed in localStorage and remove from state
+              const updated = untrackedSegments.map(s => s.id === seg.id ? { ...s, reviewed: true } : s);
+              localStorage.setItem(UNTRACKED_KEY, JSON.stringify(updated));
+              setUntrackedSegments(updated.filter(s => !s.reviewed));
+            }}
+            onMarkPrivate={(seg: UntrackedSegment) => {
+              const updated = untrackedSegments.map(s => s.id === seg.id ? { ...s, reviewed: true } : s);
+              localStorage.setItem(UNTRACKED_KEY, JSON.stringify(updated));
+              setUntrackedSegments(updated.filter(s => !s.reviewed));
+            }}
+          />
+        )}
         {viewMode === 'individual' && <IndividualTripsView logs={logs} />}
         {viewMode === 'daily' && <DailySummaryView summaries={getDailySummaries()} />}
         {viewMode === 'weekly' && <WeeklySummaryView weeks={getWeeklySummaries()} />}
@@ -468,7 +541,15 @@ export const TripLogbook: React.FC<TripLogbookProps> = ({ user, onBack }) => {
 };
 
 // Today's Summary View (Default) - Big stats focused
-const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLog[]; fuelStats: FuelEconomyStats | null; runningOdometer: number | null }> = ({ summary, allLogs, fuelStats, runningOdometer }) => {
+const TodaySummaryView: React.FC<{
+  summary: DailySummary | null;
+  allLogs: TripLog[];
+  fuelStats: FuelEconomyStats | null;
+  runningOdometer: number | null;
+  untrackedSegments: UntrackedSegment[];
+  onMarkWork: (seg: UntrackedSegment) => Promise<void>;
+  onMarkPrivate: (seg: UntrackedSegment) => void;
+}> = ({ summary, allLogs, fuelStats, runningOdometer, untrackedSegments, onMarkWork, onMarkPrivate }) => {
   const todayTrips = summary?.trips || [];
   const totalDistance = summary?.totalDistance || 0;
   const totalTrips = summary?.totalTrips || 0;
@@ -493,12 +574,57 @@ const TodaySummaryView: React.FC<{ summary: DailySummary | null; allLogs: TripLo
     });
   };
 
+  const formatTime = (ms: number) => new Date(ms).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+
+  const totalUntrackedKm = untrackedSegments.reduce((sum, s) => sum + s.km, 0);
+
   return (
     <div className="space-y-6">
       {/* Today's Date Header */}
       <div className="text-center">
         <p className="text-gray-500 text-sm">{formatDate()}</p>
       </div>
+
+      {/* Untracked Segments Review Banner */}
+      {untrackedSegments.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 bg-amber-100">
+            <div className="flex items-center space-x-2">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M12 3a9 9 0 110 18A9 9 0 0112 3z" />
+              </svg>
+              <span className="text-amber-800 font-semibold text-sm">
+                {untrackedSegments.length} untracked {untrackedSegments.length === 1 ? 'segment' : 'segments'} · {totalUntrackedKm.toFixed(1)} km
+              </span>
+            </div>
+            <span className="text-amber-600 text-xs">Review below</span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {untrackedSegments.map(seg => (
+              <div key={seg.id} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-gray-800 text-sm font-medium">{seg.km.toFixed(1)} km</p>
+                  <p className="text-gray-500 text-xs">{formatTime(seg.startTime)} – {formatTime(seg.endTime)}</p>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => onMarkWork(seg)}
+                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg active:bg-blue-700"
+                  >
+                    Work
+                  </button>
+                  <button
+                    onClick={() => onMarkPrivate(seg)}
+                    className="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg active:bg-gray-300"
+                  >
+                    Private
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Big Stats Cards */}
       <div className="grid grid-cols-2 gap-4">

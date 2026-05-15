@@ -28,6 +28,10 @@ export interface TripLog {
   vehicleString: string;
   durationMinutes: number;
   stopType?: 'pickup' | 'delivery';
+  startOdometerKm?: number;  // vehicle base + GPS accumulation at trip start
+  endOdometerKm?: number;    // startOdometerKm + distanceKm
+  isWork?: boolean;           // default true; false = private trip
+  source?: 'gps' | 'manual' | 'untracked'; // how this entry was logged
 }
 
 export type JobType = 'pickup' | 'delivery';

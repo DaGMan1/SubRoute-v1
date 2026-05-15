@@ -114,13 +114,24 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     destinationStopId: string; // Track stop.id to mark as completed
     startTime: number;
     stopType?: 'pickup' | 'delivery';
+    gpsKmAtStart?: number; // GPS accumulator snapshot when GO was tapped (undefined = legacy save)
   } | null>(null);
-  const distanceTraveledRef = useRef<number>(0); // Mutable ref to avoid GPS effect restarts
+  const distanceTraveledRef = useRef<number>(0); // Used for arrival detection only (50m check)
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
   const lastDestinationAddress = useRef<string | null>(null); // Track last completed destination for origin address
   const wakeLockRef = useRef<any>(null); // Wake Lock API to prevent screen sleep during tracking
   const isLoggingTrip = useRef<boolean>(false); // MUTEX: Prevent duplicate trip logging
+
+  // Layer 1: Always-on GPS day accumulator
+  const gpsAccumulatorRef = useRef<number>(0); // Total km accumulated today (persisted to localStorage)
+  const gpsAccumulatorWatchId = useRef<number | null>(null); // Separate watchPosition for accumulator
+  const lastTripEndGpsKm = useRef<number>(0); // GPS total at last Done tap (for untracked detection)
+  const [gpsAccumulatorKm, setGpsAccumulatorKm] = useState<number>(0); // Display state (synced from ref)
+  const gpsUpdateCountRef = useRef<number>(0); // Counter to throttle state updates
+
+  const GPS_ACCUMULATOR_KEY = `subroute_gps_day_${user.id}`;
+  const UNTRACKED_SEGMENTS_KEY = `subroute_untracked_${user.id}_${new Date().toISOString().split('T')[0]}`;
 
   // PERSIST ROUTE STATE - Load on mount (auto-clear if from previous day)
   useEffect(() => {
@@ -160,6 +171,104 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       console.error('Error loading saved route:', error);
     }
   }, [user.id]);
+
+  // GPS ACCUMULATOR - Restore from localStorage on mount (same day only)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(GPS_ACCUMULATOR_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const today = new Date().toISOString().split('T')[0];
+        if (parsed.date === today) {
+          gpsAccumulatorRef.current = parsed.totalKm || 0;
+          lastTripEndGpsKm.current = parsed.lastTripEndKm || 0;
+          setGpsAccumulatorKm(parsed.totalKm || 0);
+          if (parsed.lastLat && parsed.lastLng) {
+            lastGpsPosition.current = { lat: parsed.lastLat, lng: parsed.lastLng };
+          }
+          console.log('[SubRoute GPS] Restored accumulator:', parsed.totalKm.toFixed(2), 'km');
+        } else {
+          // New day — clear stale accumulator
+          localStorage.removeItem(GPS_ACCUMULATOR_KEY);
+          console.log('[SubRoute GPS] New day, accumulator reset');
+        }
+      }
+    } catch (e) {
+      console.error('[SubRoute GPS] Failed to restore accumulator:', e);
+    }
+  }, [GPS_ACCUMULATOR_KEY]);
+
+  // GPS ACCUMULATOR - Always-on watchPosition (Layer 1), independent of activeTrip
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const startAccumulator = () => {
+      if (gpsAccumulatorWatchId.current !== null) return; // already running
+      gpsAccumulatorWatchId.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const currentPos = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          };
+
+          // Accumulate distance
+          if (lastGpsPosition.current) {
+            const dist = calculateDistance(lastGpsPosition.current, currentPos);
+            // Sanity check: ignore jumps > 1km (GPS jitter / teleport after background)
+            if (dist < 1.0) {
+              gpsAccumulatorRef.current += dist;
+              distanceTraveledRef.current += dist; // also feed trip-level ref for arrival detection
+            }
+          }
+          lastGpsPosition.current = currentPos;
+
+          // Throttle state update: every 5 position fixes to avoid excessive re-renders
+          gpsUpdateCountRef.current += 1;
+          if (gpsUpdateCountRef.current % 5 === 0) {
+            setGpsAccumulatorKm(gpsAccumulatorRef.current);
+          }
+
+          // Persist to localStorage on every fix (survives Waze redirect/reload)
+          try {
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem(GPS_ACCUMULATOR_KEY, JSON.stringify({
+              date: today,
+              totalKm: gpsAccumulatorRef.current,
+              lastTripEndKm: lastTripEndGpsKm.current,
+              lastLat: currentPos.lat,
+              lastLng: currentPos.lng,
+              lastUpdated: Date.now(),
+            }));
+          } catch {}
+        },
+        (error) => {
+          console.warn('[SubRoute GPS] Accumulator error:', error.message);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+      console.log('[SubRoute GPS] Day accumulator started');
+    };
+
+    startAccumulator();
+
+    // Resume accumulator when page becomes visible (return from Waze)
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        if (gpsAccumulatorWatchId.current === null) {
+          startAccumulator();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (gpsAccumulatorWatchId.current !== null) {
+        navigator.geolocation.clearWatch(gpsAccumulatorWatchId.current);
+        gpsAccumulatorWatchId.current = null;
+      }
+    };
+  }, [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // PERSIST ROUTE STATE - Save on change
   useEffect(() => {
@@ -310,7 +419,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     };
 
     const startGPSTracking = () => {
-      console.log('[SubRoute GPS] Starting GPS tracking for destination:', activeTrip.destination);
+      console.log('[SubRoute GPS] Starting arrival detection for destination:', activeTrip.destination);
 
       if (navigator.geolocation && gpsWatchId.current === null) {
         gpsWatchId.current = navigator.geolocation.watchPosition(
@@ -319,13 +428,6 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
               lat: position.coords.latitude,
               lng: position.coords.longitude,
             };
-
-            // Calculate distance traveled if we have a previous position
-            if (lastGpsPosition.current) {
-              const distance = calculateDistance(lastGpsPosition.current, currentPos);
-              distanceTraveledRef.current += distance;
-            }
-            lastGpsPosition.current = currentPos;
 
             // CRITICAL: Only check arrival if activeTrip still exists (not already logged)
             if (!activeTrip) {
@@ -340,7 +442,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
             }
           },
           (error) => {
-            console.error('[SubRoute GPS] GPS tracking error:', error);
+            console.error('[SubRoute GPS] GPS arrival detection error:', error);
           },
           {
             enableHighAccuracy: true,
@@ -839,13 +941,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     setActiveTrip(null);
     console.log('[SubRoute] Active trip state cleared, duration:', durationMinutes, 'minutes');
 
-    // Use GPS-accumulated distance (tracking via watchPosition)
-    let distanceKm = distanceTraveledRef.current;
-    distanceTraveledRef.current = 0;
-    console.log('[SubRoute] GPS accumulated distance:', distanceKm.toFixed(2), 'km');
+    // Use GPS accumulator diff: current total minus snapshot at trip start
+    const gpsStart = tripToLog.gpsKmAtStart ?? 0;
+    const rawGpsKm = gpsAccumulatorRef.current - gpsStart;
+    let distanceKm = rawGpsKm;
+    console.log('[SubRoute] GPS accumulator diff:', rawGpsKm.toFixed(2), 'km (total:', gpsAccumulatorRef.current.toFixed(2), '- start:', gpsStart.toFixed(2), ')');
 
-    if (distanceKm < 0.05) {
-      // GPS didn't accumulate — fall back to straight-line × 1.3
+    if (rawGpsKm < 0.1) {
+      // GPS gap (Waze was open, background) — fall back to straight-line × 1.3
       const straightLine = calculateDistance(tripToLog.originLocation, tripToLog.destinationLocation);
       distanceKm = straightLine * 1.3;
       console.log('[SubRoute] GPS too low, using straight-line fallback:', distanceKm.toFixed(1), 'km');
@@ -855,10 +958,15 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     const [vehiclesResult] = await Promise.allSettled([getVehicles(user.id)]);
 
     let vehicleString = 'Unknown Vehicle';
+    let startOdometerKm: number | undefined;
+    let endOdometerKm: number | undefined;
     if (vehiclesResult.status === 'fulfilled') {
       const defaultVehicle = vehiclesResult.value.find((v: Vehicle) => v.isDefault);
       if (defaultVehicle) {
         vehicleString = `${defaultVehicle.make} ${defaultVehicle.model} (${defaultVehicle.plate})`;
+        const baseOdo = defaultVehicle.currentOdometer || defaultVehicle.startOdometer || 0;
+        startOdometerKm = Math.round((baseOdo + gpsStart) * 10) / 10;
+        endOdometerKm = Math.round((startOdometerKm + distanceKm) * 10) / 10;
       }
     } else {
       console.error('Failed to load vehicle info', vehiclesResult.reason);
@@ -876,6 +984,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       vehicleString,
       durationMinutes,
       stopType: tripToLog.stopType,
+      startOdometerKm,
+      endOdometerKm,
+      isWork: true,
+      source: rawGpsKm >= 0.1 ? 'gps' : 'manual',
     };
 
     // Save to Firestore
@@ -892,6 +1004,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
       lastGpsPosition.current = tripToLog.destinationLocation;
       lastDestinationAddress.current = tripToLog.destination;
+      lastTripEndGpsKm.current = gpsAccumulatorRef.current; // mark end-of-trip GPS position for untracked detection
       console.log('[SubRoute] ✅ Trip logging complete, ready for next trip');
 
       isLoggingTrip.current = false;
@@ -954,8 +1067,8 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     let tripToSet: typeof activeTrip;
 
     if (activeTrip && activeTrip.destinationStopId !== stop.id) {
-      // INTERRUPTION: different stop — keep origin, startTime, GPS distance as-is
-      // Just update where we're heading (no partial write, session stays open)
+      // INTERRUPTION: different stop — keep origin, startTime, and gpsKmAtStart as-is
+      // Accumulator keeps running; snapshot stays fixed so full distance is captured
       console.log('[SubRoute] Diverting from', activeTrip.destination, 'to', stop.address, '— keeping session open');
       tripToSet = {
         ...activeTrip,
@@ -967,6 +1080,26 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       setActiveTrip(tripToSet);
     } else if (!activeTrip) {
       // NEW SESSION: first GO tap (or Re-Nav on current stop with no session)
+
+      // Check for untracked movement since last trip ended
+      const untrackedKm = gpsAccumulatorRef.current - lastTripEndGpsKm.current;
+      if (untrackedKm > 0.5) {
+        const segment = {
+          id: Date.now().toString(),
+          startTime: lastTripEndGpsKm.current > 0 ? Date.now() - 3600000 : Date.now(), // approximate
+          endTime: Date.now(),
+          km: Math.round(untrackedKm * 10) / 10,
+          reviewed: false,
+        };
+        try {
+          const existing = JSON.parse(localStorage.getItem(UNTRACKED_SEGMENTS_KEY) || '[]');
+          existing.push(segment);
+          localStorage.setItem(UNTRACKED_SEGMENTS_KEY, JSON.stringify(existing));
+          console.log('[SubRoute] Untracked segment saved:', segment.km, 'km');
+        } catch {}
+      }
+      lastTripEndGpsKm.current = gpsAccumulatorRef.current;
+
       const origin = lastGpsPosition.current || currentLocation || null;
       const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
       distanceTraveledRef.current = 0;
@@ -978,8 +1111,9 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         destinationStopId: stop.id,
         startTime: Date.now(),
         stopType: stop.type === 'depot' ? undefined : stop.type,
+        gpsKmAtStart: gpsAccumulatorRef.current, // snapshot for Layer 2 distance calc
       };
-      console.log('[SubRoute] Starting NEW trip session:', tripToSet);
+      console.log('[SubRoute] Starting NEW trip session (GPS snapshot:', gpsAccumulatorRef.current.toFixed(2), 'km):', tripToSet);
       setActiveTrip(tripToSet);
       if (origin) lastGpsPosition.current = origin;
     } else {
@@ -1058,11 +1192,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         vehicleString,
         durationMinutes: 0,
         stopType: stop.type === 'depot' ? undefined : stop.type,
+        isWork: true,
+        source: 'manual',
       };
 
       try {
         await saveTripLog(user.id, tripLog);
         lastDestinationAddress.current = stop.address;
+        lastTripEndGpsKm.current = gpsAccumulatorRef.current; // reset untracked baseline
         console.log('[SubRoute] Manual done trip logged:', tripLog);
       } catch (e) {
         console.error('[SubRoute] Failed to log manual done trip:', e);

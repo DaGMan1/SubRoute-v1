@@ -948,10 +948,18 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     console.log('[SubRoute] GPS accumulator diff:', rawGpsKm.toFixed(2), 'km (total:', gpsAccumulatorRef.current.toFixed(2), '- start:', gpsStart.toFixed(2), ')');
 
     if (rawGpsKm < 0.1) {
-      // GPS gap (Waze was open, background) — fall back to straight-line × 1.3
-      const straightLine = calculateDistance(tripToLog.originLocation, tripToLog.destinationLocation);
-      distanceKm = straightLine * 1.3;
-      console.log('[SubRoute] GPS too low, using straight-line fallback:', distanceKm.toFixed(1), 'km');
+      // GPS gap (Waze was open, background) — use actual road distance via Directions API
+      console.log('[SubRoute] GPS too low, fetching road distance from Directions API...');
+      const roadDistance = await getRouteDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+      if (roadDistance > 0) {
+        distanceKm = roadDistance;
+        console.log('[SubRoute] Road distance from Directions API:', distanceKm.toFixed(1), 'km');
+      } else {
+        // Directions API unavailable — last resort straight-line × 1.3
+        const straightLine = calculateDistance(tripToLog.originLocation, tripToLog.destinationLocation);
+        distanceKm = straightLine * 1.3;
+        console.log('[SubRoute] Directions API failed, using straight-line fallback:', distanceKm.toFixed(1), 'km');
+      }
     }
 
     // Fetch vehicle info
@@ -1170,8 +1178,14 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       const now = Date.now();
       const origin = lastDestinationAddress.current || depotAddress?.address || 'Unknown';
       const fromLocation = lastGpsPosition.current || currentLocation || stop.location;
-      const straightLine = calculateDistance(fromLocation, stop.location);
-      const distanceKm = Math.round(straightLine * 1.3 * 10) / 10;
+      let distanceKm = 0;
+      const roadDist = await getRouteDistance(fromLocation, stop.location);
+      if (roadDist > 0) {
+        distanceKm = Math.round(roadDist * 10) / 10;
+      } else {
+        const straightLine = calculateDistance(fromLocation, stop.location);
+        distanceKm = Math.round(straightLine * 1.3 * 10) / 10;
+      }
 
       let vehicleString = 'Unknown Vehicle';
       try {

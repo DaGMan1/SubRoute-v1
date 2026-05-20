@@ -65,6 +65,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
   const [favoriteToSave, setFavoriteToSave] = useState<{ address: string; location: google.maps.LatLngLiteral } | null>(null);
   const [favoriteName, setFavoriteName] = useState('');
   const [preferredNavApp, setPreferredNavApp] = useState<'google' | 'waze'>('google');
+  const [showArrivalPrompt, setShowArrivalPrompt] = useState(false);
 
   // Voice search results (from AutocompleteService - works programmatically unlike the widget)
   const [voiceSearchResults, setVoiceSearchResults] = useState<google.maps.places.AutocompletePrediction[]>([]);
@@ -116,6 +117,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
     stopType?: 'pickup' | 'delivery';
     gpsKmAtStart?: number; // GPS accumulator snapshot when GO was tapped (undefined = legacy save)
   } | null>(null);
+  const activeTripRef = useRef<typeof activeTrip>(null); // Mirror of activeTrip for visibility handler closure
   const distanceTraveledRef = useRef<number>(0); // Used for arrival detection only (50m check)
   const gpsWatchId = useRef<number | null>(null);
   const lastGpsPosition = useRef<google.maps.LatLngLiteral | null>(null);
@@ -132,6 +134,11 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
 
   const GPS_ACCUMULATOR_KEY = `subroute_gps_day_${user.id}`;
   const UNTRACKED_SEGMENTS_KEY = `subroute_untracked_${user.id}_${new Date().toISOString().split('T')[0]}`;
+
+  // Keep activeTripRef in sync so visibility handler closure can read current value
+  useEffect(() => {
+    activeTripRef.current = activeTrip;
+  }, [activeTrip]);
 
   // PERSIST ROUTE STATE - Load on mount (auto-clear if from previous day)
   useEffect(() => {
@@ -256,6 +263,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
       if (!document.hidden) {
         if (gpsAccumulatorWatchId.current === null) {
           startAccumulator();
+        }
+        // If driver returns to SubRoute with an active trip, surface the arrival prompt
+        if (activeTripRef.current) {
+          setShowArrivalPrompt(true);
         }
       }
     };
@@ -1107,6 +1118,7 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         } catch {}
       }
       lastTripEndGpsKm.current = gpsAccumulatorRef.current;
+      setShowArrivalPrompt(false); // dismiss any lingering prompt on new GO
 
       const origin = lastGpsPosition.current || currentLocation || null;
       const originAddress = lastDestinationAddress.current || depotAddress?.address || 'Current Location';
@@ -1151,7 +1163,10 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
         console.log('[SubRoute] Opening Google Maps:', url);
         window.location.href = url;
       } else {
-        const wazeUrl = `https://waze.com/ul?q=${encodedAddress}&navigate=yes`;
+        // Use coordinates when available (faster Waze open, no geocoding round-trip)
+        const wazeUrl = stop.location
+          ? `waze://ul?ll=${stop.location.lat},${stop.location.lng}&navigate=yes`
+          : `waze://ul?q=${encodedAddress}&navigate=yes`;
         console.log('[SubRoute] Opening Waze:', wazeUrl);
         window.location.href = wazeUrl;
       }
@@ -2685,6 +2700,39 @@ export const SimpleRoutePlanner: React.FC<SimpleRoutePlannerProps> = ({ user, on
                   {fuelStopSaving ? 'Saving...' : 'Log Fuel Stop'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Arrival prompt — shown when driver returns to SubRoute from Waze with an active trip */}
+      {showArrivalPrompt && activeTrip && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50">
+          <div className="w-full max-w-md bg-white rounded-t-2xl p-6 pb-10 shadow-2xl">
+            <div className="text-center mb-4">
+              <div className="text-3xl mb-2">📍</div>
+              <h2 className="text-xl font-bold text-gray-900">Arrived?</h2>
+              <p className="text-gray-600 mt-1 text-sm leading-snug">
+                {activeTrip.destination}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                className="flex-1 py-4 rounded-xl bg-green-600 text-white text-lg font-bold active:bg-green-700"
+                onClick={() => {
+                  setShowArrivalPrompt(false);
+                  const stop = stops.find(s => s.id === activeTrip.destinationStopId);
+                  if (stop) handleDone(stop);
+                }}
+              >
+                Done ✓
+              </button>
+              <button
+                className="flex-1 py-4 rounded-xl bg-gray-200 text-gray-700 text-lg font-semibold active:bg-gray-300"
+                onClick={() => setShowArrivalPrompt(false)}
+              >
+                Still Driving
+              </button>
             </div>
           </div>
         </div>
